@@ -1,0 +1,1901 @@
+# Intermobili CRM — MVP Completo
+
+## Estructura de carpetas
+
+```
+intermobili-crm/
+├── .env.local
+├── next.config.js
+├── tailwind.config.ts
+├── tsconfig.json
+├── package.json
+│
+├── supabase/
+│   ├── schema.sql          ← ejecutar primero en Supabase SQL Editor
+│   └── seed.sql            ← datos de ejemplo opcionales
+│
+└── src/
+    ├── app/
+    │   ├── layout.tsx
+    │   ├── page.tsx                    ← redirect a /login o /dashboard
+    │   ├── login/
+    │   │   └── page.tsx
+    │   ├── dashboard/
+    │   │   └── page.tsx                ← vista del día (vendedor/admin)
+    │   ├── clientes/
+    │   │   ├── page.tsx                ← listado con filtros
+    │   │   └── [id]/
+    │   │       └── page.tsx            ← ficha + historial
+    │   ├── admin/
+    │   │   └── page.tsx                ← panel admin
+    │   └── importar/
+    │       └── page.tsx                ← importador CSV
+    │
+    ├── components/
+    │   ├── layout/
+    │   │   ├── Sidebar.tsx
+    │   │   └── TopBar.tsx
+    │   ├── dashboard/
+    │   │   ├── DayCard.tsx             ← tarjeta cliente "hoy le toca"
+    │   │   ├── StatsRow.tsx            ← métricas rápidas
+    │   │   └── QuickUpdateModal.tsx    ← modal actualización rápida
+    │   ├── clientes/
+    │   │   ├── ClientTable.tsx
+    │   │   ├── ClientFilters.tsx
+    │   │   └── ClientCard.tsx
+    │   └── ui/
+    │       ├── Badge.tsx
+    │       ├── Button.tsx
+    │       └── Modal.tsx
+    │
+    ├── lib/
+    │   ├── supabase/
+    │   │   ├── client.ts               ← cliente browser
+    │   │   └── server.ts               ← cliente server components
+    │   ├── queries/
+    │   │   ├── clients.ts
+    │   │   └── updates.ts
+    │   └── csv/
+    │       └── importer.ts             ← lógica importación CSV
+    │
+    └── types/
+        └── index.ts                    ← todos los tipos TypeScript
+```
+
+---
+
+## 1. supabase/schema.sql
+
+```sql
+-- =============================================
+-- INTERMOBILI CRM — SCHEMA
+-- Ejecutar en Supabase > SQL Editor
+-- =============================================
+
+-- PROFILES (vinculado a auth.users)
+create table public.profiles (
+  id uuid references auth.users on delete cascade primary key,
+  nombre text not null,
+  email text not null,
+  role text not null check (role in ('admin', 'vendedor')),
+  vendedor_nombre text,
+  created_at timestamptz default now()
+);
+
+alter table public.profiles enable row level security;
+
+-- Admin ve todos los profiles, vendedor solo el suyo
+create policy "profiles_select" on public.profiles
+  for select using (
+    auth.uid() = id
+    or exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.role = 'admin'
+    )
+  );
+
+create policy "profiles_update_own" on public.profiles
+  for update using (auth.uid() = id);
+
+-- CLIENTS
+create table public.clients (
+  id uuid default gen_random_uuid() primary key,
+  razon_social text not null,
+  nombre_fantasia text,
+  cuit text,
+  telefono text,
+  mail text,
+  provincia text,
+  localidad text,
+
+  -- Comercial
+  vendedor_asignado uuid references public.profiles(id),
+  categoria_cliente text check (categoria_cliente in (
+    'lead_nuevo', 'cliente_activo', 'cliente_a_reactivar', 'cerrado_no_avanzar'
+  )),
+  tipo_cliente text check (tipo_cliente in (
+    'distribuidor', 'arquitecto_desarrollador', 'hotel', 'otro'
+  )),
+  potencial text check (potencial in ('alto', 'medio', 'bajo')),
+  estado text check (estado in ('nuevo', 'en_curso', 'esperando', 'cerrado')),
+
+  -- Seguimiento
+  ultimo_contacto date,
+  resumen text,
+  fecha_proxima_accion date,
+
+  -- Histórico
+  fecha_alta_sistema date,
+  fecha_ultima_compra date,
+
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.clients enable row level security;
+
+-- Admin ve todo, vendedor ve solo sus clientes
+create policy "clients_select" on public.clients
+  for select using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+      and (p.role = 'admin' or p.id = vendedor_asignado)
+    )
+  );
+
+create policy "clients_insert" on public.clients
+  for insert with check (
+    exists (select 1 from public.profiles p where p.id = auth.uid())
+  );
+
+create policy "clients_update" on public.clients
+  for update using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+      and (p.role = 'admin' or p.id = vendedor_asignado)
+    )
+  );
+
+-- Trigger updated_at
+create or replace function update_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger clients_updated_at
+  before update on public.clients
+  for each row execute function update_updated_at();
+
+-- CLIENT UPDATES (historial inmutable)
+create table public.client_updates (
+  id uuid default gen_random_uuid() primary key,
+  client_id uuid references public.clients(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) not null,
+  fecha_contacto date not null,
+  resumen text,
+  estado text,
+  fecha_proxima_accion date,
+  created_at timestamptz default now()
+);
+
+alter table public.client_updates enable row level security;
+
+create policy "updates_select" on public.client_updates
+  for select using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+      and (p.role = 'admin' or p.id = user_id)
+    )
+  );
+
+create policy "updates_insert" on public.client_updates
+  for insert with check (user_id = auth.uid());
+
+-- IMPORTS (log de importaciones)
+create table public.imports (
+  id uuid default gen_random_uuid() primary key,
+  file_name text,
+  imported_by uuid references public.profiles(id),
+  imported_at timestamptz default now(),
+  total_rows int,
+  total_imported int,
+  total_skipped int
+);
+
+alter table public.imports enable row level security;
+
+create policy "imports_admin" on public.imports
+  for all using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+  );
+
+-- VIEW útil para dashboard
+create or replace view public.clients_with_vendedor as
+  select
+    c.*,
+    p.nombre as vendedor_nombre,
+    p.vendedor_nombre as vendedor_display
+  from public.clients c
+  left join public.profiles p on p.id = c.vendedor_asignado;
+```
+
+---
+
+## 2. supabase/seed.sql
+
+```sql
+-- =============================================
+-- SEED — Datos de ejemplo
+-- IMPORTANTE: primero crear los usuarios en
+-- Supabase Auth > Users, luego correr este SQL
+-- con los UUIDs reales de cada usuario.
+-- =============================================
+
+-- Reemplazá estos UUIDs con los reales de Auth
+do $$
+declare
+  admin_id uuid := 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'; -- reemplazar
+  tomas_id uuid := 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'; -- reemplazar
+  adriana_id uuid := 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'; -- reemplazar
+begin
+
+insert into public.profiles (id, nombre, email, role, vendedor_nombre) values
+  (admin_id, 'Admin', 'admin@intermobili.com', 'admin', null),
+  (tomas_id, 'Tomás', 'tomas@intermobili.com', 'vendedor', 'Tomás'),
+  (adriana_id, 'Adriana', 'adriana@intermobili.com', 'vendedor', 'Adriana');
+
+insert into public.clients (
+  razon_social, nombre_fantasia, cuit, telefono, mail,
+  provincia, localidad, vendedor_asignado,
+  categoria_cliente, tipo_cliente, potencial, estado,
+  ultimo_contacto, resumen, fecha_proxima_accion, fecha_ultima_compra
+) values
+(
+  'Distribuidora Sur S.A.', 'DistriSur', '30-12345678-9',
+  '11-4444-5555', 'compras@distrisur.com',
+  'Buenos Aires', 'Quilmes', tomas_id,
+  'cliente_activo', 'distribuidor', 'alto', 'en_curso',
+  current_date - 5, 'Interesados en línea Oslo. Esperan catálogo actualizado.',
+  current_date, '2024-11-15'
+),
+(
+  'Arq. Fernández & Asociados', null, '20-98765432-1',
+  '11-5555-6666', 'info@fassoc.com.ar',
+  'Buenos Aires', 'Palermo', tomas_id,
+  'lead_nuevo', 'arquitecto_desarrollador', 'alto', 'nuevo',
+  current_date - 2, 'Proyectan 3 departamentos en Belgrano. Buscan mobiliario completo.',
+  current_date + 1, null
+),
+(
+  'Hotel Alvear Palace', null, '30-55544433-2',
+  '11-4808-2100', 'compras@alvear.com.ar',
+  'Buenos Aires', 'Recoleta', adriana_id,
+  'cliente_a_reactivar', 'hotel', 'alto', 'esperando',
+  current_date - 30, 'Última compra hace 8 meses. Remodelación ala norte pendiente.',
+  current_date - 5, '2024-04-10'
+),
+(
+  'Muebles Córdoba S.R.L.', 'MueCor', '30-44433322-1',
+  '351-444-5678', 'info@muecor.com.ar',
+  'Córdoba', 'Córdoba Capital', tomas_id,
+  'cliente_a_reactivar', 'distribuidor', 'medio', 'esperando',
+  current_date - 45, 'Sin actividad desde el año pasado. Valía la pena recontactar.',
+  current_date - 10, '2024-02-20'
+),
+(
+  'Constructora Patagonia', null, '30-77788899-0',
+  '294-444-5555', 'obra@patagonia.com',
+  'Neuquén', 'Neuquén Capital', adriana_id,
+  'lead_nuevo', 'arquitecto_desarrollador', 'medio', 'nuevo',
+  current_date - 1, 'Contacto inicial por Instagram. Quieren ver showroom.',
+  current_date + 3, null
+);
+
+end $$;
+```
+
+---
+
+## 3. package.json
+
+```json
+{
+  "name": "intermobili-crm",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18",
+    "@supabase/supabase-js": "^2.43.0",
+    "@supabase/ssr": "^0.4.0",
+    "papaparse": "^5.4.1",
+    "date-fns": "^3.6.0",
+    "clsx": "^2.1.1"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/papaparse": "^5.3.14",
+    "tailwindcss": "^3.4.4",
+    "postcss": "^8",
+    "autoprefixer": "^10",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.5"
+  }
+}
+```
+
+---
+
+## 4. .env.local
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+```
+
+---
+
+## 5. tailwind.config.ts
+
+```typescript
+import type { Config } from 'tailwindcss'
+
+const config: Config = {
+  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  theme: {
+    extend: {
+      colors: {
+        // Paleta Intermobili — tierra, salvia, beige
+        sage: {
+          50:  '#EEF2ED',
+          100: '#C8D8C5',
+          200: '#A2BE9D',
+          400: '#6A9E63',
+          600: '#4A6741',
+          800: '#2D5028',
+          900: '#1A3017',
+        },
+        warm: {
+          50:  '#FAF7F2',
+          100: '#F0E8D8',
+          200: '#E0CEAF',
+          400: '#C4A06B',
+          600: '#8C6D3F',
+          800: '#5C4220',
+          900: '#3A2810',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+    },
+  },
+  plugins: [],
+}
+
+export default config
+```
+
+---
+
+## 6. src/types/index.ts
+
+```typescript
+export type Role = 'admin' | 'vendedor'
+export type CategoriaCliente = 'lead_nuevo' | 'cliente_activo' | 'cliente_a_reactivar' | 'cerrado_no_avanzar'
+export type TipoCliente = 'distribuidor' | 'arquitecto_desarrollador' | 'hotel' | 'otro'
+export type Potencial = 'alto' | 'medio' | 'bajo'
+export type Estado = 'nuevo' | 'en_curso' | 'esperando' | 'cerrado'
+
+export interface Profile {
+  id: string
+  nombre: string
+  email: string
+  role: Role
+  vendedor_nombre: string | null
+  created_at: string
+}
+
+export interface Client {
+  id: string
+  razon_social: string
+  nombre_fantasia: string | null
+  cuit: string | null
+  telefono: string | null
+  mail: string | null
+  provincia: string | null
+  localidad: string | null
+  vendedor_asignado: string | null
+  vendedor_nombre?: string | null      // join desde profiles
+  categoria_cliente: CategoriaCliente | null
+  tipo_cliente: TipoCliente | null
+  potencial: Potencial | null
+  estado: Estado | null
+  ultimo_contacto: string | null       // date ISO
+  resumen: string | null
+  fecha_proxima_accion: string | null  // date ISO
+  fecha_alta_sistema: string | null
+  fecha_ultima_compra: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ClientUpdate {
+  id: string
+  client_id: string
+  user_id: string
+  fecha_contacto: string
+  resumen: string | null
+  estado: Estado | null
+  fecha_proxima_accion: string | null
+  created_at: string
+  // join
+  user?: { nombre: string }
+}
+
+export interface Import {
+  id: string
+  file_name: string | null
+  imported_by: string | null
+  imported_at: string
+  total_rows: number
+  total_imported: number
+  total_skipped: number
+}
+
+// Para el dashboard — cliente con señal de urgencia calculada
+export type Urgencia = 'vencido' | 'hoy' | 'proximo' | 'sin_fecha'
+
+export interface ClientConUrgencia extends Client {
+  urgencia: Urgencia
+}
+```
+
+---
+
+## 7. src/lib/supabase/client.ts
+
+```typescript
+import { createBrowserClient } from '@supabase/ssr'
+
+export const createClient = () =>
+  createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+```
+
+## 7b. src/lib/supabase/server.ts
+
+```typescript
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export const createServerSupabaseClient = () => {
+  const cookieStore = cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (cookiesToSet) => {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {}
+        },
+      },
+    }
+  )
+}
+```
+
+---
+
+## 8. src/lib/queries/clients.ts
+
+```typescript
+import { createClient } from '@/lib/supabase/client'
+import type { Client, ClientConUrgencia, Urgencia } from '@/types'
+import { isToday, isPast, isFuture, parseISO, differenceInDays } from 'date-fns'
+
+// Calcula urgencia según fecha_proxima_accion
+export function calcularUrgencia(client: Client): Urgencia {
+  if (!client.fecha_proxima_accion) {
+    // Si no hay fecha pero tampoco hubo contacto en 30+ días → tratar como vencido
+    if (!client.ultimo_contacto) return 'vencido'
+    const dias = differenceInDays(new Date(), parseISO(client.ultimo_contacto))
+    return dias > 30 ? 'vencido' : 'sin_fecha'
+  }
+  const fecha = parseISO(client.fecha_proxima_accion)
+  if (isPast(fecha) && !isToday(fecha)) return 'vencido'
+  if (isToday(fecha)) return 'hoy'
+  return 'proximo'
+}
+
+// Dashboard: clientes del vendedor ordenados por urgencia
+export async function fetchClientesDia(vendedorId: string | null, isAdmin: boolean) {
+  const sb = createClient()
+  let query = sb
+    .from('clients')
+    .select('*, profiles!clients_vendedor_asignado_fkey(nombre, vendedor_nombre)')
+    .neq('categoria_cliente', 'cerrado_no_avanzar')
+    .neq('estado', 'cerrado')
+
+  if (!isAdmin && vendedorId) {
+    query = query.eq('vendedor_asignado', vendedorId)
+  }
+
+  const { data, error } = await query
+  if (error) throw error
+
+  const clientes = (data as any[]).map(row => ({
+    ...row,
+    vendedor_nombre: row.profiles?.nombre ?? null,
+  })) as Client[]
+
+  const conUrgencia: ClientConUrgencia[] = clientes.map(c => ({
+    ...c,
+    urgencia: calcularUrgencia(c),
+  }))
+
+  // Orden: vencido → hoy → proximo → sin_fecha
+  const orden: Record<Urgencia, number> = { vencido: 0, hoy: 1, proximo: 2, sin_fecha: 3 }
+  return conUrgencia.sort((a, b) => orden[a.urgencia] - orden[b.urgencia])
+}
+
+// Listado con filtros
+export async function fetchClientes(filtros: {
+  vendedor?: string
+  categoria?: string
+  tipo?: string
+  potencial?: string
+  estado?: string
+  provincia?: string
+  search?: string
+}) {
+  const sb = createClient()
+  let query = sb
+    .from('clients')
+    .select('*, profiles!clients_vendedor_asignado_fkey(nombre)')
+    .order('razon_social')
+
+  if (filtros.vendedor) query = query.eq('vendedor_asignado', filtros.vendedor)
+  if (filtros.categoria) query = query.eq('categoria_cliente', filtros.categoria)
+  if (filtros.tipo) query = query.eq('tipo_cliente', filtros.tipo)
+  if (filtros.potencial) query = query.eq('potencial', filtros.potencial)
+  if (filtros.estado) query = query.eq('estado', filtros.estado)
+  if (filtros.provincia) query = query.ilike('provincia', `%${filtros.provincia}%`)
+  if (filtros.search) query = query.ilike('razon_social', `%${filtros.search}%`)
+
+  const { data, error } = await query
+  if (error) throw error
+  return data as Client[]
+}
+
+// Ficha individual
+export async function fetchCliente(id: string) {
+  const sb = createClient()
+  const { data, error } = await sb
+    .from('clients')
+    .select('*, profiles!clients_vendedor_asignado_fkey(nombre, vendedor_nombre)')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data as Client
+}
+
+// Métricas para admin dashboard
+export async function fetchMetricas(vendedorId?: string) {
+  const sb = createClient()
+  let q = sb.from('clients').select('categoria_cliente, fecha_proxima_accion, vendedor_asignado')
+  if (vendedorId) q = q.eq('vendedor_asignado', vendedorId)
+  const { data } = await q
+  if (!data) return null
+
+  const hoy = new Date().toISOString().split('T')[0]
+  return {
+    total_activos: data.filter(c => c.categoria_cliente === 'cliente_activo').length,
+    total_leads: data.filter(c => c.categoria_cliente === 'lead_nuevo').length,
+    total_reactivar: data.filter(c => c.categoria_cliente === 'cliente_a_reactivar').length,
+    total_vencidos: data.filter(c => c.fecha_proxima_accion && c.fecha_proxima_accion < hoy).length,
+  }
+}
+```
+
+---
+
+## 9. src/lib/queries/updates.ts
+
+```typescript
+import { createClient } from '@/lib/supabase/client'
+import type { ClientUpdate, Estado } from '@/types'
+
+export async function fetchHistorial(clientId: string): Promise<ClientUpdate[]> {
+  const sb = createClient()
+  const { data, error } = await sb
+    .from('client_updates')
+    .select('*, profiles!client_updates_user_id_fkey(nombre)')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data as any[]).map(r => ({ ...r, user: { nombre: r.profiles?.nombre } }))
+}
+
+export async function guardarActualizacion(params: {
+  clientId: string
+  userId: string
+  fechaContacto: string
+  resumen: string
+  estado: Estado
+  fechaProximaAccion: string
+}) {
+  const sb = createClient()
+
+  // 1. Log inmutable
+  const { error: e1 } = await sb.from('client_updates').insert({
+    client_id: params.clientId,
+    user_id: params.userId,
+    fecha_contacto: params.fechaContacto,
+    resumen: params.resumen,
+    estado: params.estado,
+    fecha_proxima_accion: params.fechaProximaAccion || null,
+  })
+  if (e1) throw e1
+
+  // 2. Actualizar ficha principal
+  const { error: e2 } = await sb
+    .from('clients')
+    .update({
+      ultimo_contacto: params.fechaContacto,
+      resumen: params.resumen,
+      estado: params.estado,
+      fecha_proxima_accion: params.fechaProximaAccion || null,
+    })
+    .eq('id', params.clientId)
+  if (e2) throw e2
+}
+```
+
+---
+
+## 10. src/lib/csv/importer.ts
+
+```typescript
+import Papa from 'papaparse'
+import type { Client } from '@/types'
+
+// Limpia strings tipo ="valor" que exporta algunos sistemas legacy
+const limpiarValor = (v: unknown): string => {
+  if (v == null) return ''
+  const s = String(v).trim()
+  return s.replace(/^="?(.*?)"?$/, '$1').trim()
+}
+
+// Fechas inválidas como 30/12/1899 → null
+const parsearFecha = (v: string): string | null => {
+  const limpio = limpiarValor(v)
+  if (!limpio) return null
+  // Detectar fecha fantasma 1899/1900
+  if (limpio.includes('1899') || limpio.includes('1900')) return null
+
+  // Formato dd/mm/yyyy
+  const match = limpio.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (match) {
+    const [, d, m, y] = match
+    const fecha = new Date(parseInt(y), parseInt(m) - 1, parseInt(d))
+    if (isNaN(fecha.getTime())) return null
+    return fecha.toISOString().split('T')[0]
+  }
+  return null
+}
+
+// Mapeo flexible de nombres de columna
+const COLUMN_MAP: Record<string, keyof Client> = {
+  'razón social': 'razon_social',
+  'razon social': 'razon_social',
+  'razonsocial': 'razon_social',
+  'nombre fantasía': 'nombre_fantasia',
+  'nombre fantasia': 'nombre_fantasia',
+  'c.u.i.t.': 'cuit',
+  'cuit': 'cuit',
+  'teléfono': 'telefono',
+  'telefono': 'telefono',
+  'mail': 'mail',
+  'email': 'mail',
+  'provincia': 'provincia',
+  'localidad': 'localidad',
+  'fecha alta': 'fecha_alta_sistema',
+  'fecha ult. compra': 'fecha_ultima_compra',
+  'fecha ultima compra': 'fecha_ultima_compra',
+}
+
+export interface ImportResult {
+  rows: Partial<Client>[]
+  skipped: number
+  total: number
+}
+
+export async function parsearCSV(
+  file: File,
+  vendedorId: string
+): Promise<ImportResult> {
+  return new Promise((resolve, reject) => {
+    // Intentar detectar encoding — PapaParse trabaja con el string ya decodificado
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+
+      Papa.parse(text, {
+        header: true,
+        delimiter: ';',
+        skipEmptyLines: true,
+        transformHeader: (h: string) => h.trim().toLowerCase(),
+        complete: (results) => {
+          const rows: Partial<Client>[] = []
+          let skipped = 0
+
+          for (const raw of results.data as Record<string, string>[]) {
+            const mapped: Partial<Client> = {
+              vendedor_asignado: vendedorId,
+              categoria_cliente: 'cliente_activo',
+              estado: 'en_curso',
+            }
+
+            let tieneRazonSocial = false
+
+            for (const [col, val] of Object.entries(raw)) {
+              const field = COLUMN_MAP[col.trim().toLowerCase()]
+              if (!field) continue
+
+              const limpio = limpiarValor(val)
+
+              if (field === 'fecha_alta_sistema' || field === 'fecha_ultima_compra') {
+                ;(mapped as any)[field] = parsearFecha(limpio)
+              } else {
+                ;(mapped as any)[field] = limpio || null
+              }
+
+              if (field === 'razon_social' && limpio) tieneRazonSocial = true
+            }
+
+            if (!tieneRazonSocial) { skipped++; continue }
+            rows.push(mapped)
+          }
+
+          resolve({ rows, skipped, total: results.data.length })
+        },
+        error: reject,
+      })
+    }
+    // Intentar latin1 primero (encoding común en exports argentinos)
+    reader.readAsText(file, 'windows-1252')
+  })
+}
+```
+
+---
+
+## 11. src/components/ui/Badge.tsx
+
+```tsx
+import clsx from 'clsx'
+import type { CategoriaCliente, Estado, Potencial, Urgencia } from '@/types'
+
+const categoriaLabel: Record<CategoriaCliente, string> = {
+  lead_nuevo: 'Lead nuevo',
+  cliente_activo: 'Activo',
+  cliente_a_reactivar: 'A reactivar',
+  cerrado_no_avanzar: 'Cerrado',
+}
+
+const categoriaColor: Record<CategoriaCliente, string> = {
+  lead_nuevo: 'bg-blue-50 text-blue-700',
+  cliente_activo: 'bg-sage-50 text-sage-800',
+  cliente_a_reactivar: 'bg-amber-50 text-amber-700',
+  cerrado_no_avanzar: 'bg-gray-100 text-gray-500',
+}
+
+const estadoColor: Record<Estado, string> = {
+  nuevo: 'bg-blue-50 text-blue-700',
+  en_curso: 'bg-sage-50 text-sage-800',
+  esperando: 'bg-amber-50 text-amber-700',
+  cerrado: 'bg-gray-100 text-gray-500',
+}
+
+const urgenciaConfig: Record<Urgencia, { label: string; cls: string }> = {
+  vencido: { label: 'Vencido', cls: 'bg-red-50 text-red-700 font-medium' },
+  hoy:     { label: 'Hoy',     cls: 'bg-amber-50 text-amber-700 font-medium' },
+  proximo: { label: 'Próximo', cls: 'bg-sage-50 text-sage-700' },
+  sin_fecha: { label: 'Sin fecha', cls: 'bg-gray-100 text-gray-500' },
+}
+
+interface BadgeProps { className?: string }
+
+export function CategoriaBadge({ categoria, className }: { categoria: CategoriaCliente } & BadgeProps) {
+  return (
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-xs', categoriaColor[categoria], className)}>
+      {categoriaLabel[categoria]}
+    </span>
+  )
+}
+
+export function EstadoBadge({ estado, className }: { estado: Estado } & BadgeProps) {
+  return (
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-xs', estadoColor[estado], className)}>
+      {estado.replace('_', ' ')}
+    </span>
+  )
+}
+
+export function UrgenciaBadge({ urgencia }: { urgencia: Urgencia }) {
+  const { label, cls } = urgenciaConfig[urgencia]
+  return (
+    <span className={clsx('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs', cls)}>
+      {label}
+    </span>
+  )
+}
+
+export function PotencialDot({ potencial }: { potencial: string | null }) {
+  const color = potencial === 'alto' ? 'bg-sage-600' : potencial === 'medio' ? 'bg-amber-400' : 'bg-gray-300'
+  return <span className={clsx('inline-block w-2 h-2 rounded-full', color)} title={potencial ?? ''} />
+}
+```
+
+---
+
+## 12. src/components/dashboard/QuickUpdateModal.tsx
+
+```tsx
+'use client'
+import { useState } from 'react'
+import type { Client, Estado } from '@/types'
+import { guardarActualizacion } from '@/lib/queries/updates'
+
+interface Props {
+  client: Client
+  userId: string
+  onClose: () => void
+  onSaved: () => void
+}
+
+export default function QuickUpdateModal({ client, userId, onClose, onSaved }: Props) {
+  const hoy = new Date().toISOString().split('T')[0]
+  const [resumen, setResumen] = useState('')
+  const [estado, setEstado] = useState<Estado>(client.estado ?? 'en_curso')
+  const [proxAccion, setProxAccion] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const guardar = async () => {
+    if (!resumen.trim()) { setError('Escribí qué pasó.'); return }
+    setLoading(true)
+    try {
+      await guardarActualizacion({
+        clientId: client.id,
+        userId,
+        fechaContacto: hoy,
+        resumen,
+        estado,
+        fechaProximaAccion: proxAccion,
+      })
+      onSaved()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h2 className="font-medium text-gray-900">{client.razon_social}</h2>
+          <p className="text-sm text-gray-400 mt-0.5">Actualización rápida</p>
+        </div>
+        <div className="px-6 py-4 space-y-4">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">¿Qué pasó?</label>
+            <textarea
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sage-400"
+              rows={3}
+              placeholder="Ej: Llamé, me dijo que llame la semana que viene..."
+              value={resumen}
+              onChange={e => setResumen(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Estado</label>
+            <select
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400"
+              value={estado}
+              onChange={e => setEstado(e.target.value as Estado)}
+            >
+              <option value="nuevo">Nuevo</option>
+              <option value="en_curso">En curso</option>
+              <option value="esperando">Esperando</option>
+              <option value="cerrado">Cerrado</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Próximo contacto</label>
+            <input
+              type="date"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400"
+              value={proxAccion}
+              onChange={e => setProxAccion(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-2 justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-50 rounded-xl transition"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={guardar}
+            disabled={loading}
+            className="px-4 py-2 text-sm bg-sage-600 text-white rounded-xl hover:bg-sage-800 transition disabled:opacity-50"
+          >
+            {loading ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 13. src/components/dashboard/DayCard.tsx
+
+```tsx
+'use client'
+import type { ClientConUrgencia } from '@/types'
+import { UrgenciaBadge, CategoriaBadge, PotencialDot } from '@/components/ui/Badge'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
+import Link from 'next/link'
+
+interface Props {
+  client: ClientConUrgencia
+  onUpdate: (c: ClientConUrgencia) => void
+}
+
+export default function DayCard({ client: c, onUpdate }: Props) {
+  const proxFecha = c.fecha_proxima_accion
+    ? format(parseISO(c.fecha_proxima_accion), 'd MMM', { locale: es })
+    : '—'
+
+  const ultimoContacto = c.ultimo_contacto
+    ? format(parseISO(c.ultimo_contacto), 'd MMM', { locale: es })
+    : 'Nunca'
+
+  return (
+    <div className={`
+      bg-white rounded-xl border px-4 py-3 flex items-center gap-4 group
+      hover:border-sage-200 transition-all
+      ${c.urgencia === 'vencido' ? 'border-l-4 border-l-red-400 border-gray-100' :
+        c.urgencia === 'hoy' ? 'border-l-4 border-l-amber-400 border-gray-100' :
+        'border-gray-100'}
+    `}>
+      {/* Iniciales */}
+      <div className="w-9 h-9 rounded-full bg-warm-100 text-warm-800 flex items-center justify-center text-xs font-medium flex-shrink-0">
+        {c.razon_social.slice(0, 2).toUpperCase()}
+      </div>
+
+      {/* Info principal */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <Link href={`/clientes/${c.id}`} className="text-sm font-medium text-gray-900 hover:text-sage-700 truncate">
+            {c.razon_social}
+          </Link>
+          <PotencialDot potencial={c.potencial} />
+        </div>
+        <p className="text-xs text-gray-400 truncate mt-0.5">
+          {c.resumen ?? 'Sin resumen'}
+        </p>
+      </div>
+
+      {/* Meta */}
+      <div className="hidden sm:flex flex-col items-end gap-1 flex-shrink-0">
+        <UrgenciaBadge urgencia={c.urgencia} />
+        <span className="text-xs text-gray-400">
+          Próximo: {proxFecha} · Último: {ultimoContacto}
+        </span>
+      </div>
+
+      {/* Teléfono + acción rápida */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {c.telefono && (
+          <a
+            href={`tel:${c.telefono}`}
+            className="text-xs text-sage-600 hover:underline hidden md:block"
+          >
+            {c.telefono}
+          </a>
+        )}
+        <button
+          onClick={() => onUpdate(c)}
+          className="text-xs px-3 py-1.5 bg-sage-50 text-sage-700 rounded-lg hover:bg-sage-100 transition whitespace-nowrap"
+        >
+          Actualizar
+        </button>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 14. src/app/layout.tsx
+
+```tsx
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  title: 'Intermobili CRM',
+  description: 'CRM comercial Intermobili',
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="es">
+      <body className={`${inter.className} bg-warm-50 text-gray-900 antialiased`}>
+        {children}
+      </body>
+    </html>
+  )
+}
+```
+
+---
+
+## 15. src/app/globals.css
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+---
+
+## 16. src/app/page.tsx
+
+```tsx
+import { redirect } from 'next/navigation'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+
+export default async function Home() {
+  const sb = createServerSupabaseClient()
+  const { data: { user } } = await sb.auth.getUser()
+  if (user) redirect('/dashboard')
+  else redirect('/login')
+}
+```
+
+---
+
+## 17. src/app/login/page.tsx
+
+```tsx
+'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const sb = createClient()
+
+  const login = async () => {
+    setLoading(true); setError('')
+    const { error } = await sb.auth.signInWithPassword({ email, password })
+    if (error) { setError('Email o contraseña incorrectos.'); setLoading(false) }
+    else router.push('/dashboard')
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-warm-50">
+      <div className="bg-white rounded-2xl shadow-sm border border-warm-100 w-full max-w-sm p-8">
+        <div className="mb-8 text-center">
+          <h1 className="text-xl font-medium text-gray-900">Intermobili</h1>
+          <p className="text-sm text-gray-400 mt-1">CRM Comercial</p>
+        </div>
+        {error && <p className="text-sm text-red-500 mb-4 text-center">{error}</p>}
+        <div className="space-y-3">
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400"
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && login()}
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400"
+          />
+          <button
+            onClick={login}
+            disabled={loading}
+            className="w-full bg-sage-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-sage-800 transition disabled:opacity-50"
+          >
+            {loading ? 'Entrando...' : 'Entrar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 18. src/app/dashboard/page.tsx
+
+```tsx
+'use client'
+import { useEffect, useState, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { fetchClientesDia, fetchMetricas } from '@/lib/queries/clients'
+import DayCard from '@/components/dashboard/DayCard'
+import QuickUpdateModal from '@/components/dashboard/QuickUpdateModal'
+import type { Profile, ClientConUrgencia } from '@/types'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
+import Link from 'next/link'
+
+export default function DashboardPage() {
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [clientes, setClientes] = useState<ClientConUrgencia[]>([])
+  const [metricas, setMetricas] = useState<any>(null)
+  const [selected, setSelected] = useState<ClientConUrgencia | null>(null)
+  const [loading, setLoading] = useState(true)
+  const sb = createClient()
+
+  const cargar = useCallback(async () => {
+    const { data: { user } } = await sb.auth.getUser()
+    if (!user) return
+    const { data: p } = await sb.from('profiles').select('*').eq('id', user.id).single()
+    setProfile(p)
+    const isAdmin = p?.role === 'admin'
+    const [clts, mets] = await Promise.all([
+      fetchClientesDia(user.id, isAdmin),
+      fetchMetricas(isAdmin ? undefined : user.id),
+    ])
+    setClientes(clts)
+    setMetricas(mets)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { cargar() }, [cargar])
+
+  const vencidos = clientes.filter(c => c.urgencia === 'vencido')
+  const hoy = clientes.filter(c => c.urgencia === 'hoy')
+  const proximos = clientes.filter(c => c.urgencia === 'proximo')
+  const sinFecha = clientes.filter(c => c.urgencia === 'sin_fecha')
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-gray-400 text-sm">Cargando tu día...</div>
+  )
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="mb-8">
+        <p className="text-sm text-gray-400">{format(new Date(), "EEEE d 'de' MMMM", { locale: es })}</p>
+        <h1 className="text-2xl font-medium text-gray-900 mt-1">
+          Hola, {profile?.nombre} 👋
+        </h1>
+      </div>
+
+      {/* Métricas */}
+      {metricas && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+          {[
+            { label: 'Clientes activos', val: metricas.total_activos, color: 'text-sage-700' },
+            { label: 'Leads nuevos',     val: metricas.total_leads,   color: 'text-blue-600' },
+            { label: 'A reactivar',      val: metricas.total_reactivar, color: 'text-amber-600' },
+            { label: 'Vencidos',         val: metricas.total_vencidos,  color: 'text-red-600' },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="bg-white rounded-xl border border-gray-100 px-4 py-3">
+              <p className="text-xs text-gray-400">{label}</p>
+              <p className={`text-2xl font-medium mt-0.5 ${color}`}>{val}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Vencidos */}
+      {vencidos.length > 0 && (
+        <section className="mb-6">
+          <p className="text-xs font-medium text-red-600 uppercase tracking-wider mb-2">
+            Vencidos — {vencidos.length}
+          </p>
+          <div className="space-y-2">
+            {vencidos.map(c => <DayCard key={c.id} client={c} onUpdate={setSelected} />)}
+          </div>
+        </section>
+      )}
+
+      {/* Hoy */}
+      {hoy.length > 0 && (
+        <section className="mb-6">
+          <p className="text-xs font-medium text-amber-600 uppercase tracking-wider mb-2">
+            Hoy le toca — {hoy.length}
+          </p>
+          <div className="space-y-2">
+            {hoy.map(c => <DayCard key={c.id} client={c} onUpdate={setSelected} />)}
+          </div>
+        </section>
+      )}
+
+      {/* Próximos */}
+      {proximos.length > 0 && (
+        <section className="mb-6">
+          <p className="text-xs font-medium text-sage-600 uppercase tracking-wider mb-2">
+            Próximos — {proximos.length}
+          </p>
+          <div className="space-y-2">
+            {proximos.map(c => <DayCard key={c.id} client={c} onUpdate={setSelected} />)}
+          </div>
+        </section>
+      )}
+
+      {/* Sin fecha */}
+      {sinFecha.length > 0 && (
+        <section className="mb-6">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+            Sin fecha — {sinFecha.length}
+          </p>
+          <div className="space-y-2">
+            {sinFecha.map(c => <DayCard key={c.id} client={c} onUpdate={setSelected} />)}
+          </div>
+        </section>
+      )}
+
+      {clientes.length === 0 && (
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-4xl mb-3">✓</p>
+          <p className="text-sm">Nada pendiente por hoy.</p>
+          <Link href="/clientes" className="text-sm text-sage-600 hover:underline mt-2 inline-block">
+            Ver todos los clientes
+          </Link>
+        </div>
+      )}
+
+      {/* Modal actualización */}
+      {selected && profile && (
+        <QuickUpdateModal
+          client={selected}
+          userId={profile.id}
+          onClose={() => setSelected(null)}
+          onSaved={() => { setSelected(null); cargar() }}
+        />
+      )}
+    </div>
+  )
+}
+```
+
+---
+
+## 19. src/app/clientes/page.tsx
+
+```tsx
+'use client'
+import { useEffect, useState } from 'react'
+import { fetchClientes } from '@/lib/queries/clients'
+import { createClient } from '@/lib/supabase/client'
+import type { Client, Profile } from '@/types'
+import { CategoriaBadge, EstadoBadge, PotencialDot } from '@/components/ui/Badge'
+import Link from 'next/link'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
+
+export default function ClientesPage() {
+  const [clientes, setClientes] = useState<Client[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [filtros, setFiltros] = useState({
+    categoria: '', tipo: '', potencial: '', estado: '', provincia: '',
+  })
+  const sb = createClient()
+
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await sb.auth.getUser()
+      if (!user) return
+      const { data: p } = await sb.from('profiles').select('*').eq('id', user.id).single()
+      setProfile(p)
+      const data = await fetchClientes({
+        vendedor: p?.role === 'vendedor' ? user.id : undefined,
+        search,
+        ...filtros,
+      })
+      setClientes(data)
+      setLoading(false)
+    }
+    init()
+  }, [search, filtros])
+
+  const filtrar = (key: string, val: string) => setFiltros(f => ({ ...f, [key]: val }))
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-medium">Clientes</h1>
+        <Link
+          href="/clientes/nuevo"
+          className="text-sm bg-sage-600 text-white px-4 py-2 rounded-xl hover:bg-sage-800 transition"
+        >
+          + Nuevo cliente
+        </Link>
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <input
+          type="text"
+          placeholder="Buscar razón social..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-1.5 text-sm flex-1 min-w-48 focus:outline-none focus:ring-2 focus:ring-sage-400"
+        />
+        {[
+          { key: 'categoria', opts: ['lead_nuevo','cliente_activo','cliente_a_reactivar','cerrado_no_avanzar'], label: 'Categoría' },
+          { key: 'tipo', opts: ['distribuidor','arquitecto_desarrollador','hotel','otro'], label: 'Tipo' },
+          { key: 'potencial', opts: ['alto','medio','bajo'], label: 'Potencial' },
+          { key: 'estado', opts: ['nuevo','en_curso','esperando','cerrado'], label: 'Estado' },
+        ].map(({ key, opts, label }) => (
+          <select
+            key={key}
+            value={(filtros as any)[key]}
+            onChange={e => filtrar(key, e.target.value)}
+            className="border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400"
+          >
+            <option value="">{label}</option>
+            {opts.map(o => <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>)}
+          </select>
+        ))}
+      </div>
+
+      {/* Tabla */}
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-8">Cargando...</p>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-warm-50 border-b border-gray-100">
+              <tr>
+                {['Cliente','Categoría','Tipo','Potencial','Último contacto','Próx. acción','Estado',''].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-400 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {clientes.map(c => (
+                <tr key={c.id} className="hover:bg-warm-50 transition">
+                  <td className="px-4 py-3">
+                    <Link href={`/clientes/${c.id}`} className="font-medium text-gray-900 hover:text-sage-700">
+                      {c.razon_social}
+                    </Link>
+                    {c.localidad && <p className="text-xs text-gray-400">{c.localidad}</p>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.categoria_cliente && <CategoriaBadge categoria={c.categoria_cliente} />}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{c.tipo_cliente?.replace(/_/g,' ') ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1.5">
+                      <PotencialDot potencial={c.potencial} />
+                      <span className="text-xs text-gray-500">{c.potencial ?? '—'}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {c.ultimo_contacto ? format(parseISO(c.ultimo_contacto), 'd MMM yy', { locale: es }) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {c.fecha_proxima_accion ? format(parseISO(c.fecha_proxima_accion), 'd MMM yy', { locale: es }) : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.estado && <EstadoBadge estado={c.estado} />}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link href={`/clientes/${c.id}`} className="text-xs text-sage-600 hover:underline">Ver</Link>
+                  </td>
+                </tr>
+              ))}
+              {clientes.length === 0 && (
+                <tr><td colSpan={8} className="text-center py-10 text-gray-400 text-sm">Sin resultados</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+---
+
+## 20. src/app/clientes/[id]/page.tsx
+
+```tsx
+'use client'
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
+import { fetchCliente } from '@/lib/queries/clients'
+import { fetchHistorial } from '@/lib/queries/updates'
+import { createClient } from '@/lib/supabase/client'
+import type { Client, ClientUpdate, Profile } from '@/types'
+import { CategoriaBadge, EstadoBadge, PotencialDot } from '@/components/ui/Badge'
+import QuickUpdateModal from '@/components/dashboard/QuickUpdateModal'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
+
+export default function ClientePage() {
+  const { id } = useParams<{ id: string }>()
+  const [client, setClient] = useState<Client | null>(null)
+  const [historial, setHistorial] = useState<ClientUpdate[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [showModal, setShowModal] = useState(false)
+  const sb = createClient()
+
+  const cargar = async () => {
+    const { data: { user } } = await sb.auth.getUser()
+    if (!user) return
+    const [c, h, { data: p }] = await Promise.all([
+      fetchCliente(id),
+      fetchHistorial(id),
+      sb.from('profiles').select('*').eq('id', user.id).single(),
+    ])
+    setClient(c); setHistorial(h); setProfile(p)
+  }
+
+  useEffect(() => { cargar() }, [id])
+
+  if (!client) return <div className="text-sm text-gray-400 text-center py-16">Cargando...</div>
+
+  const campo = (label: string, val: string | null | undefined) => (
+    <div>
+      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+      <p className="text-sm text-gray-900">{val || '—'}</p>
+    </div>
+  )
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-medium text-gray-900">{client.razon_social}</h1>
+          {client.nombre_fantasia && <p className="text-sm text-gray-400 mt-0.5">{client.nombre_fantasia}</p>}
+          <div className="flex items-center gap-2 mt-2">
+            {client.categoria_cliente && <CategoriaBadge categoria={client.categoria_cliente} />}
+            {client.estado && <EstadoBadge estado={client.estado} />}
+            {client.potencial && (
+              <span className="flex items-center gap-1 text-xs text-gray-500">
+                <PotencialDot potencial={client.potencial} /> {client.potencial}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => setShowModal(true)}
+          className="text-sm bg-sage-600 text-white px-4 py-2 rounded-xl hover:bg-sage-800 transition"
+        >
+          Actualizar
+        </button>
+      </div>
+
+      {/* Datos */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5 grid grid-cols-2 gap-4">
+        {campo('CUIT', client.cuit)}
+        {campo('Teléfono', client.telefono)}
+        {campo('Mail', client.mail)}
+        {campo('Localidad', `${client.localidad ?? ''}${client.provincia ? `, ${client.provincia}` : ''}`)}
+        {campo('Tipo cliente', client.tipo_cliente?.replace(/_/g, ' '))}
+        {campo('Última compra', client.fecha_ultima_compra ? format(parseISO(client.fecha_ultima_compra), 'd MMM yyyy', { locale: es }) : null)}
+        {campo('Último contacto', client.ultimo_contacto ? format(parseISO(client.ultimo_contacto), 'd MMM yyyy', { locale: es }) : null)}
+        {campo('Próxima acción', client.fecha_proxima_accion ? format(parseISO(client.fecha_proxima_accion), 'd MMM yyyy', { locale: es }) : null)}
+      </div>
+
+      {/* Resumen */}
+      {client.resumen && (
+        <div className="bg-warm-50 border border-warm-100 rounded-2xl p-4 mb-5">
+          <p className="text-xs text-gray-400 mb-1">Último resumen</p>
+          <p className="text-sm text-gray-800">{client.resumen}</p>
+        </div>
+      )}
+
+      {/* Historial */}
+      <div>
+        <h2 className="text-sm font-medium text-gray-500 mb-3">Historial de contactos</h2>
+        {historial.length === 0 ? (
+          <p className="text-sm text-gray-400">Sin actualizaciones todavía.</p>
+        ) : (
+          <div className="space-y-3">
+            {historial.map(u => (
+              <div key={u.id} className="bg-white rounded-xl border border-gray-100 px-4 py-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-gray-700">
+                    {u.user?.nombre ?? 'Usuario'} · {format(parseISO(u.fecha_contacto), 'd MMM yyyy', { locale: es })}
+                  </span>
+                  {u.estado && <EstadoBadge estado={u.estado as any} />}
+                </div>
+                {u.resumen && <p className="text-sm text-gray-600">{u.resumen}</p>}
+                {u.fecha_proxima_accion && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Próximo: {format(parseISO(u.fecha_proxima_accion), 'd MMM yyyy', { locale: es })}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showModal && profile && (
+        <QuickUpdateModal
+          client={client}
+          userId={profile.id}
+          onClose={() => setShowModal(false)}
+          onSaved={() => { setShowModal(false); cargar() }}
+        />
+      )}
+    </div>
+  )
+}
+```
+
+---
+
+## 21. src/app/importar/page.tsx
+
+```tsx
+'use client'
+import { useState, useRef } from 'react'
+import { parsearCSV, type ImportResult } from '@/lib/csv/importer'
+import { createClient } from '@/lib/supabase/client'
+
+export default function ImportarPage() {
+  const [resultado, setResultado] = useState<ImportResult | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+  const sb = createClient()
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError(''); setDone(false)
+    try {
+      const { data: { user } } = await sb.auth.getUser()
+      const r = await parsearCSV(file, user!.id)
+      setResultado(r)
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  const confirmar = async () => {
+    if (!resultado) return
+    setImporting(true); setError('')
+    try {
+      const { data: { user } } = await sb.auth.getUser()
+      const { error: e } = await sb.from('clients').insert(resultado.rows as any)
+      if (e) throw e
+      await sb.from('imports').insert({
+        file_name: fileRef.current?.files?.[0]?.name,
+        imported_by: user!.id,
+        total_rows: resultado.total,
+        total_imported: resultado.rows.length,
+        total_skipped: resultado.skipped,
+      })
+      setDone(true); setResultado(null)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-8">
+      <h1 className="text-xl font-medium mb-2">Importar CSV</h1>
+      <p className="text-sm text-gray-400 mb-6">
+        Soporta archivos con separador <code>;</code>, encoding Windows-1252 y strings tipo <code>="valor"</code>.
+      </p>
+
+      {error && <div className="bg-red-50 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
+      {done && <div className="bg-sage-50 text-sage-800 text-sm rounded-xl px-4 py-3 mb-4">Importación completada correctamente.</div>}
+
+      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+        <label className="block w-full border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-sage-400 transition">
+          <p className="text-sm text-gray-400">Arrastrá o hacé click para subir el CSV</p>
+          <p className="text-xs text-gray-300 mt-1">Formato exportado del sistema actual</p>
+          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
+        </label>
+
+        {resultado && (
+          <div className="mt-6">
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-warm-50 rounded-xl px-4 py-3 text-center">
+                <p className="text-2xl font-medium text-gray-800">{resultado.total}</p>
+                <p className="text-xs text-gray-400">Total filas</p>
+              </div>
+              <div className="bg-sage-50 rounded-xl px-4 py-3 text-center">
+                <p className="text-2xl font-medium text-sage-700">{resultado.rows.length}</p>
+                <p className="text-xs text-gray-400">A importar</p>
+              </div>
+              <div className="bg-amber-50 rounded-xl px-4 py-3 text-center">
+                <p className="text-2xl font-medium text-amber-700">{resultado.skipped}</p>
+                <p className="text-xs text-gray-400">Omitidas</p>
+              </div>
+            </div>
+
+            {/* Preview primeras 5 */}
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-1 text-gray-400 font-normal">Razón social</th>
+                    <th className="text-left py-1 text-gray-400 font-normal">CUIT</th>
+                    <th className="text-left py-1 text-gray-400 font-normal">Provincia</th>
+                    <th className="text-left py-1 text-gray-400 font-normal">Ult. compra</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultado.rows.slice(0, 5).map((r, i) => (
+                    <tr key={i} className="border-b border-gray-50">
+                      <td className="py-1 text-gray-700">{r.razon_social}</td>
+                      <td className="py-1 text-gray-500">{r.cuit ?? '—'}</td>
+                      <td className="py-1 text-gray-500">{r.provincia ?? '—'}</td>
+                      <td className="py-1 text-gray-500">{r.fecha_ultima_compra ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {resultado.rows.length > 5 && (
+                <p className="text-xs text-gray-400 mt-1">... y {resultado.rows.length - 5} más</p>
+              )}
+            </div>
+
+            <button
+              onClick={confirmar}
+              disabled={importing}
+              className="w-full bg-sage-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-sage-800 transition disabled:opacity-50"
+            >
+              {importing ? 'Importando...' : `Confirmar importación (${resultado.rows.length} clientes)`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 22. src/components/layout/Sidebar.tsx
+
+```tsx
+'use client'
+import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import clsx from 'clsx'
+
+const links = [
+  { href: '/dashboard', label: 'Mi día' },
+  { href: '/clientes', label: 'Clientes' },
+  { href: '/admin', label: 'Panel admin', adminOnly: true },
+  { href: '/importar', label: 'Importar CSV', adminOnly: true },
+]
+
+interface Props { isAdmin: boolean; nombre: string }
+
+export default function Sidebar({ isAdmin, nombre }: Props) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const sb = createClient()
+
+  const logout = async () => {
+    await sb.auth.signOut()
+    router.push('/login')
+  }
+
+  return (
+    <aside className="w-52 min-w-52 bg-white border-r border-gray-100 flex flex-col">
+      <div className="px-5 py-5 border-b border-gray-100">
+        <p className="text-sm font-medium text-gray-900">Intermobili</p>
+        <p className="text-xs text-gray-400 mt-0.5">CRM Comercial</p>
+      </div>
+      <nav className="flex-1 py-3">
+        {links
+          .filter(l => !l.adminOnly || isAdmin)
+          .map(({ href, label }) => (
+            <Link
+              key={href}
+              href={href}
+              className={clsx(
+                'flex items-center px-5 py-2.5 text-sm transition',
+                pathname === href
+                  ? 'text-sage-700 bg-sage-50 border-l-2 border-sage-600 font-medium'
+                  : 'text-gray-500 hover:bg-warm-50 hover:text-gray-900 border-l-2 border-transparent'
+              )}
+            >
+              {label}
+            </Link>
+          ))}
+      </nav>
+      <div className="px-5 py-4 border-t border-gray-100">
+        <p className="text-xs font-medium text-gray-700">{nombre}</p>
+        <button onClick={logout} className="text-xs text-gray-400 hover:text-red-500 mt-1 transition">
+          Cerrar sesión
+        </button>
+      </div>
+    </aside>
+  )
+}
+```
+
+---
+
+## 23. Middleware — src/middleware.ts
+
+```typescript
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+
+export async function middleware(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
+
+  const sb = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll: (cookiesToSet) => {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  const { data: { user } } = await sb.auth.getUser()
+
+  if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  if (user && request.nextUrl.pathname === '/login') {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  return supabaseResponse
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+---
+
+## PASO 6 — Cómo correrlo localmente
+
+```bash
+# 1. Clonar / iniciar proyecto
+npx create-next-app@14 intermobili-crm --typescript --tailwind --app
+cd intermobili-crm
+
+# 2. Instalar dependencias adicionales
+npm install @supabase/supabase-js @supabase/ssr papaparse date-fns clsx
+npm install -D @types/papaparse
+
+# 3. Copiar todos los archivos de este documento en sus rutas correspondientes
+
+# 4. Configurar .env.local con tus datos de Supabase
+
+# 5. Ejecutar el schema.sql en Supabase > SQL Editor
+
+# 6. Crear usuarios en Supabase > Authentication > Users:
+#    - admin@intermobili.com / password
+#    - tomas@intermobili.com / password
+#    - (etc. para cada vendedor)
+
+# 7. Ejecutar seed.sql reemplazando los UUIDs con los de cada usuario creado
+
+# 8. Correr en desarrollo
+npm run dev
+# → http://localhost:3000
+```
+
+---
+
+## PASO 7 — Deploy en Vercel
+
+```bash
+# 1. Subir a GitHub (repositorio privado recomendado)
+git init && git add . && git commit -m "MVP inicial"
+git remote add origin https://github.com/tu-usuario/intermobili-crm
+git push -u origin main
+
+# 2. Ir a vercel.com > New Project > importar repositorio
+
+# 3. Agregar variables de entorno en Vercel:
+#    NEXT_PUBLIC_SUPABASE_URL
+#    NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# 4. Deploy automático. En cada push a main → redeploy.
+```
+
+### Configuración Supabase para producción
+En Supabase > Authentication > URL Configuration:
+- Site URL: `https://tu-app.vercel.app`
+- Redirect URLs: `https://tu-app.vercel.app/**`
+
+---
+
+## Arquitectura preparada para Fase 2 (IA)
+
+Los campos que Claude va a leer en la segunda fase ya están en el modelo:
+- `vendedor_asignado`, `categoria_cliente`, `tipo_cliente`, `potencial`
+- `ultimo_contacto`, `resumen`, `fecha_proxima_accion`, `estado`
+- `fecha_ultima_compra`, historial completo en `client_updates`
+
+Para conectar Claude en Fase 2: una Server Action que lee estos campos
+y llama a la API de Anthropic para sugerir próximos pasos. Sin cambios al schema.
+```
