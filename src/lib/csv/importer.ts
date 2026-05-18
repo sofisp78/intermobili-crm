@@ -12,6 +12,14 @@ const limpiarValor = (v: unknown): string => {
   return s.replace(/^=["']?(.*?)["']?$/, '$1').trim()
 }
 
+const normalizarListaTipo = (v: string): 'lista_1' | 'lista_2' | null => {
+  // Limpia y normaliza: "Lista1", "lista 1", ="Lista1", "1", etc.
+  const s = limpiarValor(v).toLowerCase().replace(/\s/g, '')
+  if (s === 'lista1' || s === '1') return 'lista_1'
+  if (s === 'lista2' || s === '2') return 'lista_2'
+  return null
+}
+
 const parsearFecha = (v: string): string | null => {
   const limpio = limpiarValor(v)
   if (!limpio) return null
@@ -52,6 +60,10 @@ const COLUMN_MAP: Record<string, keyof Client> = {
   'fecha ult compra':    'fecha_ultima_compra',
   'fecha ultima compra': 'fecha_ultima_compra',
   'fechaultcompra':      'fecha_ultima_compra',
+  'listaprecios':        'lista_tipo',
+  'lista precios':       'lista_tipo',
+  'lista':               'lista_tipo',
+  'listaprecio':         'lista_tipo',
 }
 
 // Columnas que existen en el CSV pero no se importan (para no confundir el debug)
@@ -114,6 +126,8 @@ export async function parsearCSV(
 
               if (field === 'fecha_alta_sistema' || field === 'fecha_ultima_compra') {
                 ;(mapped as any)[field] = parsearFecha(limpio)
+              } else if (field === 'lista_tipo') {
+                ;(mapped as any)[field] = normalizarListaTipo(val as string)
               } else {
                 ;(mapped as any)[field] = limpio || null
               }

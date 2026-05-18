@@ -5,6 +5,7 @@ import { actualizarVendedor, fetchClientesDia, fetchVendedores } from '@/lib/que
 import DayCard from '@/components/dashboard/DayCard'
 import QuickUpdateModal from '@/components/dashboard/QuickUpdateModal'
 import type { Profile, ClientConUrgencia } from '@/types'
+import { LISTA_TIPO_OPTIONS } from '@/lib/labels'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
@@ -68,9 +69,11 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [vendedores, setVendedores] = useState<{ id: string; nombre: string }[]>([])
   const [vendedorFiltroId, setVendedorFiltroId] = useState('')
+  const [listaTipoFiltro, setListaTipoFiltro] = useState('')
   const [vistaVendedor, setVistaVendedor] = useState<VistaVendedor>('mios')
   const [filtroRapido, setFiltroRapido] = useState<FiltroRapido>('pendientes')
   const [ordenLista, setOrdenLista] = useState<OrdenLista>('fecha')
+  const [busqueda, setBusqueda] = useState('')
   const [clientes, setClientes] = useState<ClientConUrgencia[]>([])
   const [selected, setSelected] = useState<ClientConUrgencia | null>(null)
   const [loading, setLoading] = useState(true)
@@ -78,9 +81,9 @@ export default function DashboardPage() {
   const profileRef = useRef<Profile | null>(null)
   const sb = createClient()
 
-  const cargarDatos = useCallback(async (prof: Profile, vfId: string) => {
+  const cargarDatos = useCallback(async (prof: Profile, vfId: string, ltFiltro?: string) => {
     const isAdmin = prof.role === 'admin'
-    const clts = await fetchClientesDia(prof.id, isAdmin, vfId || undefined)
+    const clts = await fetchClientesDia(prof.id, isAdmin, vfId || undefined, ltFiltro || undefined)
     setClientes(clts)
   }, [])
 
@@ -118,17 +121,24 @@ export default function DashboardPage() {
       return
     }
     if (!profileRef.current) return
-    cargarDatos(profileRef.current, vendedorFiltroId)
-  }, [vendedorFiltroId, cargarDatos])
+    cargarDatos(profileRef.current, vendedorFiltroId, listaTipoFiltro)
+  }, [vendedorFiltroId, listaTipoFiltro, cargarDatos])
 
   const recargar = () => {
-    if (profileRef.current) cargarDatos(profileRef.current, vendedorFiltroId)
+    if (profileRef.current) cargarDatos(profileRef.current, vendedorFiltroId, listaTipoFiltro)
   }
 
   const tomarLead = async (clientId: string) => {
     if (!profileRef.current) return
+    const nextFiltro = profileRef.current.role === 'admin' ? '' : vendedorFiltroId
     await actualizarVendedor(clientId, profileRef.current.id)
-    await cargarDatos(profileRef.current, vendedorFiltroId)
+    if (profileRef.current.role === 'admin') {
+      setVendedorFiltroId('')
+    } else {
+      setVistaVendedor('mios')
+    }
+    setFiltroRapido('todos')
+    await cargarDatos(profileRef.current, nextFiltro)
   }
 
   const esVendedor = profile?.role !== 'admin'
@@ -139,12 +149,26 @@ export default function DashboardPage() {
     return vistaVendedor === 'sin_asignar' ? leadsSinAsignar : leadsMios
   }, [clientes, esVendedor, leadsMios, leadsSinAsignar, vistaVendedor])
 
-  const vencidos = useMemo(() => clientesVisibles.filter(c => c.urgencia === 'vencido'), [clientesVisibles])
-  const hoy = useMemo(() => clientesVisibles.filter(c => c.urgencia === 'hoy'), [clientesVisibles])
-  const proximos = useMemo(() => clientesVisibles.filter(c => c.urgencia === 'proximo'), [clientesVisibles])
-  const sinFecha = useMemo(() => clientesVisibles.filter(c => c.urgencia === 'sin_fecha'), [clientesVisibles])
+  const clientesFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    if (!q) return clientesVisibles
+    return clientesVisibles.filter(c =>
+      c.razon_social.toLowerCase().includes(q) ||
+      (c.nombre_fantasia?.toLowerCase().includes(q) ?? false) ||
+      (c.telefono?.toLowerCase().includes(q) ?? false) ||
+      (c.mail?.toLowerCase().includes(q) ?? false) ||
+      (c.vendedor_nombre?.toLowerCase().includes(q) ?? false) ||
+      (c.localidad?.toLowerCase().includes(q) ?? false) ||
+      (c.provincia?.toLowerCase().includes(q) ?? false)
+    )
+  }, [clientesVisibles, busqueda])
+
+  const vencidos = useMemo(() => clientesFiltrados.filter(c => c.urgencia === 'vencido'), [clientesFiltrados])
+  const hoy = useMemo(() => clientesFiltrados.filter(c => c.urgencia === 'hoy'), [clientesFiltrados])
+  const proximos = useMemo(() => clientesFiltrados.filter(c => c.urgencia === 'proximo'), [clientesFiltrados])
+  const sinFecha = useMemo(() => clientesFiltrados.filter(c => c.urgencia === 'sin_fecha'), [clientesFiltrados])
   const pendientes = useMemo(() => [...vencidos, ...hoy], [vencidos, hoy])
-  const totalVisibles = clientesVisibles.length
+  const totalVisibles = clientesFiltrados.length
 
   const ordenarClientes = useCallback((items: ClientConUrgencia[]) => {
     const prioridadOrden: Record<string, number> = { alta: 0, media: 1, baja: 2 }
@@ -169,7 +193,7 @@ export default function DashboardPage() {
   const listaPrincipal = useMemo(() => {
     let lista: ClientConUrgencia[]
     switch (filtroRapido) {
-      case 'todos': lista = clientesVisibles; break
+      case 'todos': lista = clientesFiltrados; break
       case 'hoy': lista = hoy; break
       case 'vencidos': lista = vencidos; break
       case 'proximos': lista = proximos; break
@@ -177,7 +201,7 @@ export default function DashboardPage() {
       default: lista = pendientes
     }
     return ordenarClientes(lista)
-  }, [clientesVisibles, filtroRapido, hoy, ordenarClientes, pendientes, proximos, sinFecha, vencidos])
+  }, [clientesFiltrados, filtroRapido, hoy, ordenarClientes, pendientes, proximos, sinFecha, vencidos])
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-gray-400 text-sm">Cargando tu lista de trabajo...</div>
@@ -216,19 +240,30 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {profile?.role === 'admin' && (
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <select
-            value={vendedorFiltroId}
-            onChange={e => setVendedorFiltroId(e.target.value)}
+            value={listaTipoFiltro}
+            onChange={e => setListaTipoFiltro(e.target.value)}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
           >
-            <option value="">Todos los responsables</option>
-            <option value="sin_asignar">Sin asignar</option>
-            {vendedores.map(v => (
-              <option key={v.id} value={v.id}>{v.nombre}</option>
-            ))}
+            <option value="">Todas las listas</option>
+            {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        )}
+
+          {profile?.role === 'admin' && (
+            <select
+              value={vendedorFiltroId}
+              onChange={e => setVendedorFiltroId(e.target.value)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
+            >
+              <option value="">Todos los responsables</option>
+              <option value="sin_asignar">Sin asignar</option>
+              {vendedores.map(v => (
+                <option key={v.id} value={v.id}>{v.nombre}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       {esVendedor && (
@@ -275,6 +310,30 @@ export default function DashboardPage() {
         <Counter label="Para hoy" value={hoy.length} tone="amber" />
         <Counter label="Atrasados" value={vencidos.length} tone={vencidos.length > 0 ? 'red' : 'gray'} />
         <Counter label="Próximos" value={proximos.length} tone="green" />
+      </div>
+
+      {/* Buscador */}
+      <div className="relative mb-5">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Buscar por cliente, contacto, teléfono, responsable..."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400 bg-white"
+        />
+        {busqueda && (
+          <button
+            onClick={() => setBusqueda('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {vencidos.length > 0 && filtroRapido === 'pendientes' && (
@@ -386,12 +445,24 @@ export default function DashboardPage() {
         </Section>
       )}
 
-      {listaPrincipal.length === 0 && pendientes.length === 0 && filtroRapido === 'pendientes' && (
+      {/* Estado vacío por búsqueda */}
+      {busqueda.trim() && totalVisibles === 0 && (
+        <div className="bg-white border border-gray-100 rounded-2xl px-6 py-12 text-center">
+          <p className="text-lg font-semibold text-gray-800">No encontramos leads con esa búsqueda.</p>
+          <p className="text-sm text-gray-500 mt-1">Probá con otro nombre, teléfono o responsable.</p>
+          <button onClick={() => setBusqueda('')} className="mt-4 text-sm text-sage-700 font-semibold hover:underline">
+            Limpiar búsqueda
+          </button>
+        </div>
+      )}
+
+      {/* Estado vacío por filtro (sin búsqueda activa) */}
+      {!busqueda.trim() && listaPrincipal.length === 0 && pendientes.length === 0 && filtroRapido === 'pendientes' && (
         <div className="bg-white border border-gray-100 rounded-2xl px-6 py-12 text-center">
           <p className="text-lg font-semibold text-gray-800">No hay llamadas pendientes.</p>
           <p className="text-sm text-gray-500 mt-1">Podes mirar la cartera completa y decidir nuevas acciones.</p>
           <div className="mt-4 flex items-center justify-center gap-3">
-            {totalVisibles > 0 && (
+            {clientesVisibles.length > 0 && (
               <button onClick={() => setFiltroRapido('todos')} className="text-sm text-sage-700 font-semibold">
                 Ver todos
               </button>

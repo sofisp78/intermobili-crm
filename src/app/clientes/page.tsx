@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { fetchClientes, fetchVendedores } from '@/lib/queries/clients'
 import { createClient } from '@/lib/supabase/client'
-import { CATEGORIA_OPTIONS, ESTADO_OPTIONS, PRIORIDAD_OPTIONS, TIPO_OPTIONS } from '@/lib/labels'
+import { CATEGORIA_OPTIONS, ESTADO_OPTIONS, LISTA_TIPO_OPTIONS, PRIORIDAD_OPTIONS, TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
 import type { Client, Profile } from '@/types'
 import { CategoriaBadge, EstadoBadge, PrioridadBadge } from '@/components/ui/Badge'
 import Link from 'next/link'
@@ -36,11 +36,18 @@ export default function ClientesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filtros, setFiltros] = useState({
-    categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '',
+    categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '',
   })
   const profileRef = useRef<Profile | null>(null)
   const sb = useMemo(() => createClient(), [])
+
+  // Debounce search: espera 300ms después del último cambio antes de disparar la query
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   // Cargar perfil y vendedores una sola vez
   useEffect(() => {
@@ -48,7 +55,7 @@ export default function ClientesPage() {
       try {
         const { data: { user } } = await sb.auth.getUser()
         if (!user) return
-        const { data: p, error: pe } = await sb.from('profiles').select('*').eq('id', user.id).single()
+        const { data: p, error: pe } = await sb.from('profiles').select('id, nombre, email, role, vendedor_nombre, created_at').eq('id', user.id).single()
         if (pe) throw pe
         profileRef.current = p
         setProfile(p)
@@ -63,27 +70,21 @@ export default function ClientesPage() {
     init()
   }, [sb])
 
-  // Fetch clientes cuando cambian filtros o perfil carga
+  // Fetch clientes cuando cambian filtros o el texto de búsqueda (debounced)
   useEffect(() => {
     if (!profile) return
     let cancelled = false
-    const cargar = async () => {
-      try {
-        const data = await fetchClientes({ search, ...filtros })
-        if (!cancelled) setClientes(data)
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? JSON.stringify(e))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    cargar()
+    setLoading(true)
+    fetchClientes({ search: debouncedSearch, ...filtros, listaTipo: filtros.listaTipo || undefined })
+      .then(data => { if (!cancelled) setClientes(data) })
+      .catch((e: any) => { if (!cancelled) setError(e?.message ?? JSON.stringify(e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [search, filtros, profile])
+  }, [debouncedSearch, filtros, profile])
 
   const filtrar = (key: string, val: string) => setFiltros(f => ({ ...f, [key]: val }))
   const hayFiltros = search !== '' || Object.values(filtros).some(v => v !== '')
-  const limpiar = () => { setSearch(''); setFiltros({ categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '' }) }
+  const limpiar = () => { setSearch(''); setFiltros({ categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '' }) }
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">
@@ -156,6 +157,11 @@ export default function ClientesPage() {
           {TIPO_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
 
+        <select className={SEL_CLS} value={filtros.listaTipo} onChange={e => filtrar('listaTipo', e.target.value)}>
+          <option value="">Lista</option>
+          {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+
         {vendedores.length > 0 && (
           <select className={SEL_CLS} value={filtros.vendedor} onChange={e => filtrar('vendedor', e.target.value)}>
             <option value="">Responsable</option>
@@ -192,6 +198,7 @@ export default function ClientesPage() {
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Cliente</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Responsable</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Lista</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Categoría / Estado</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Prioridad</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Próx. acción</th>
@@ -220,6 +227,20 @@ export default function ClientesPage() {
                     <span className="text-xs text-gray-600">
                       {c.vendedor_nombre ?? <span className="text-gray-300">—</span>}
                     </span>
+                  </td>
+
+                  {/* Lista */}
+                  <td className="px-4 py-3.5">
+                    {c.lista_tipo ? (
+                      <span className={clsx(
+                        'text-xs font-medium px-2 py-0.5 rounded-full',
+                        c.lista_tipo === 'lista_1' ? 'bg-purple-50 text-purple-700' : 'bg-indigo-50 text-indigo-700'
+                      )}>
+                        {listaTipoLabel[c.lista_tipo]}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
                   </td>
 
                   {/* Categoría + Estado */}
@@ -274,7 +295,7 @@ export default function ClientesPage() {
 
               {clientes.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-16 text-gray-400">
+                  <td colSpan={8} className="text-center py-16 text-gray-400">
                     <p className="text-sm font-medium text-gray-500 mb-1">Sin resultados</p>
                     {hayFiltros && (
                       <button onClick={limpiar} className="text-xs text-sage-600 hover:underline mt-1">

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addDays } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { PRIORIDAD_OPTIONS } from '@/lib/labels'
+import { LISTA_TIPO_OPTIONS, PRIORIDAD_OPTIONS } from '@/lib/labels'
 import type { Profile } from '@/types'
 
 const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400'
@@ -31,6 +31,7 @@ export default function NuevoClientePage() {
     localidad: '',
     vendedor_asignado: '',
     prioridad: 'media',
+    lista_tipo: '',
     origen: '',
     resumen: '',
     fecha_proxima_accion: isoDate(addDays(new Date(), 1)),
@@ -99,6 +100,7 @@ export default function NuevoClientePage() {
         categoria_cliente: 'lead_nuevo',
         estado: 'nuevo',
         prioridad: form.prioridad || 'media',
+        lista_tipo: form.lista_tipo || null,
         origen: form.origen.trim() || null,
         resumen: form.resumen.trim() || null,
         fecha_proxima_accion: form.fecha_proxima_accion || null,
@@ -187,7 +189,7 @@ export default function NuevoClientePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className={labelCls}>Origen</label>
             <input
@@ -197,6 +199,14 @@ export default function NuevoClientePage() {
               className={inputCls}
               placeholder="Showroom, Instagram, referido..."
             />
+          </div>
+
+          <div>
+            <label className={labelCls}>Lista</label>
+            <select value={form.lista_tipo} onChange={e => set('lista_tipo', e.target.value)} className={inputCls}>
+              <option value="">Sin lista</option>
+              {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
           </div>
 
           <div>

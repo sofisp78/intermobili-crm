@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { fetchCliente, fetchVendedores, actualizarVendedor } from '@/lib/queries/clients'
+import { LISTA_TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
 import { fetchHistorial } from '@/lib/queries/updates'
 import { createClient } from '@/lib/supabase/client'
 import type { Client, ClientUpdate, Profile } from '@/types'
@@ -44,6 +45,9 @@ export default function ClientePage() {
   const [editResponsable, setEditResponsable] = useState(false)
   const [nuevoResponsable, setNuevoResponsable] = useState<string>('')
   const [guardandoResp, setGuardandoResp] = useState(false)
+  const [editLista, setEditLista] = useState(false)
+  const [nuevoLista, setNuevoLista] = useState<string>('')
+  const [guardandoLista, setGuardandoLista] = useState(false)
   const sb = createClient()
 
   const cargar = async () => {
@@ -60,6 +64,7 @@ export default function ClientePage() {
     setProfile(p)
     setVendedores(vds)
     setNuevoResponsable(c.vendedor_asignado ?? '')
+    setNuevoLista(c.lista_tipo ?? '')
   }
 
   useEffect(() => { cargar() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -86,6 +91,19 @@ export default function ClientePage() {
     }
   }
 
+  const guardarLista = async () => {
+    setGuardandoLista(true)
+    try {
+      const { createClient: createSb } = await import('@/lib/supabase/client')
+      const sb2 = createSb()
+      await sb2.from('clients').update({ lista_tipo: nuevoLista || null }).eq('id', client.id)
+      setEditLista(false)
+      cargar()
+    } finally {
+      setGuardandoLista(false)
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
 
@@ -109,6 +127,44 @@ export default function ClientePage() {
               <span className="flex items-center gap-1.5 text-xs text-gray-500">
                 <PotencialDot potencial={client.potencial} /> Potencial {client.potencial}
               </span>
+            )}
+            {editLista ? (
+              <div className="flex items-center gap-2">
+                <select
+                  value={nuevoLista}
+                  onChange={e => setNuevoLista(e.target.value)}
+                  autoFocus
+                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
+                >
+                  <option value="">Sin definir</option>
+                  {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <button
+                  onClick={guardarLista}
+                  disabled={guardandoLista}
+                  className="text-xs bg-sage-600 text-white px-3 py-1 rounded-lg hover:bg-sage-800 transition disabled:opacity-50"
+                >
+                  {guardandoLista ? '...' : 'Guardar'}
+                </button>
+                <button onClick={() => setEditLista(false)} className="text-xs text-gray-400 hover:text-gray-600">
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditLista(true)}
+                className={clsx(
+                  'flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full border transition hover:opacity-80',
+                  client.lista_tipo === 'lista_1' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                  client.lista_tipo === 'lista_2' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                  'bg-gray-50 text-gray-400 border-gray-200'
+                )}
+              >
+                Lista: {client.lista_tipo ? listaTipoLabel[client.lista_tipo] : 'Sin definir'}
+                <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a4 4 0 01-2.828 1.172H7v-2a4 4 0 011.172-2.828z" />
+                </svg>
+              </button>
             )}
             {diasSinContacto !== null && (
               <span className={clsx(
@@ -301,6 +357,7 @@ export default function ClientePage() {
               </div>
             )}
           </div>
+
 
           {[
             ['CUIT', client.cuit],

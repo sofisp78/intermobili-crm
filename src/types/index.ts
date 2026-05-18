@@ -4,6 +4,7 @@ export type TipoCliente = 'distribuidor' | 'arquitecto_desarrollador' | 'hotel' 
 export type Potencial = 'alto' | 'medio' | 'bajo'
 export type Estado = 'nuevo' | 'en_curso' | 'esperando' | 'cerrado'
 export type Prioridad = 'alta' | 'media' | 'baja'
+export type ListaTipo = 'lista_1' | 'lista_2'
 
 export interface Profile {
   id: string
@@ -41,6 +42,7 @@ export interface Client {
   ultima_actualizacion_por: string | null
   ultima_actualizacion_at: string | null
   vendedor_original: string | null
+  lista_tipo: ListaTipo | null
   created_at: string
   updated_at: string
 }

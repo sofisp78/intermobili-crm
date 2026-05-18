@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import type { ClientConUrgencia, Prioridad } from '@/types'
 import { PrioridadBadge } from '@/components/ui/Badge'
+import { listaTipoLabel } from '@/lib/labels'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
@@ -51,6 +52,7 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
   const [fechaEdit, setFechaEdit] = useState(c.fecha_proxima_accion ?? '')
   const [saving, setSaving] = useState(false)
   const [takingLead, setTakingLead] = useState(false)
+  const [takeError, setTakeError] = useState<string | null>(null)
 
   const wa = waLink(c.telefono)
   const tel = telLink(c.telefono)
@@ -89,8 +91,11 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
 
   const handleTakeLead = async () => {
     setTakingLead(true)
+    setTakeError(null)
     try {
       await onTakeLead(c.id)
+    } catch (e: any) {
+      setTakeError(e?.message ?? 'No se pudo tomar el lead. Probá de nuevo.')
     } finally {
       setTakingLead(false)
     }
@@ -110,6 +115,14 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
               {tipoContacto(c.categoria_cliente)}
             </span>
             {c.prioridad && <PrioridadBadge prioridad={c.prioridad} />}
+            <span className={clsx(
+              'text-xs font-medium px-2 py-0.5 rounded-full',
+              c.lista_tipo === 'lista_1' ? 'bg-purple-50 text-purple-700' :
+              c.lista_tipo === 'lista_2' ? 'bg-indigo-50 text-indigo-700' :
+              'bg-gray-100 text-gray-400'
+            )}>
+              {c.lista_tipo ? listaTipoLabel[c.lista_tipo] : 'Sin lista asignada'}
+            </span>
             {!c.vendedor_asignado && <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Sin responsable</span>}
           </div>
 
@@ -174,13 +187,20 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
 
         <div className="flex flex-col gap-2 min-w-[150px]">
           {!c.vendedor_asignado && (
-            <button
-              onClick={handleTakeLead}
-              disabled={takingLead}
-              className="text-sm px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition font-bold disabled:opacity-50"
-            >
-              {takingLead ? 'Tomando...' : 'Tomar lead'}
-            </button>
+            <>
+              <button
+                onClick={handleTakeLead}
+                disabled={takingLead}
+                className="text-sm px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition font-bold disabled:opacity-50"
+              >
+                {takingLead ? 'Tomando...' : 'Tomar lead'}
+              </button>
+              {takeError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  {takeError}
+                </p>
+              )}
+            </>
           )}
           {wa && (
             <a

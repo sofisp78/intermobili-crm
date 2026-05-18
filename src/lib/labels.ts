@@ -1,4 +1,4 @@
-import type { CategoriaCliente, Estado, Potencial, Prioridad, TipoCliente } from '@/types'
+import type { CategoriaCliente, Estado, ListaTipo, Potencial, Prioridad, TipoCliente } from '@/types'
 
 export const CATEGORIA_OPTIONS: { value: CategoriaCliente; label: string }[] = [
   { value: 'lead_nuevo', label: 'Lead nuevo' },
@@ -32,6 +32,16 @@ export const PRIORIDAD_OPTIONS: { value: Prioridad; label: string }[] = [
   { value: 'media', label: 'Media' },
   { value: 'baja', label: 'Baja' },
 ]
+
+export const LISTA_TIPO_OPTIONS: { value: ListaTipo; label: string }[] = [
+  { value: 'lista_1', label: 'Lista 1' },
+  { value: 'lista_2', label: 'Lista 2' },
+]
+
+export const listaTipoLabel: Record<ListaTipo, string> = {
+  lista_1: 'Lista 1',
+  lista_2: 'Lista 2',
+}
 
 export const categoriaLabel = Object.fromEntries(
   CATEGORIA_OPTIONS.map(option => [option.value, option.label])
