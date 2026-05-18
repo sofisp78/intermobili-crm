@@ -30,7 +30,7 @@ const COLS_LISTA = [
 
 // Columnas para el dashboard admin (métricas agregadas, sin datos de contacto)
 const COLS_ADMIN = [
-  'id', 'vendedor_asignado', 'vendedor_nombre',
+  'id', 'vendedor_asignado',
   'categoria_cliente', 'estado', 'prioridad', 'lista_tipo',
   'fecha_proxima_accion', 'ultimo_contacto',
   'profiles!vendedor_asignado(nombre, vendedor_nombre)',

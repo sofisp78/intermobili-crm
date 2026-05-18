@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { fetchClientes, fetchVendedores } from '@/lib/queries/clients'
 import { createClient } from '@/lib/supabase/client'
 import { CATEGORIA_OPTIONS, ESTADO_OPTIONS, LISTA_TIPO_OPTIONS, PRIORIDAD_OPTIONS, TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
@@ -28,6 +28,25 @@ function diasSinContactoLabel(fecha: string | null) {
 }
 
 const SEL_CLS = 'border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400'
+
+// Ancho fijo garantizado por inline style para evitar compresión por table layout
+const COL_LISTA_STYLE: React.CSSProperties = { minWidth: 120, width: 120, whiteSpace: 'nowrap' }
+
+function renderListaBadge(listaTipo: string | null | undefined) {
+  if (!listaTipo) return <span className="text-xs text-gray-300">—</span>
+  const esLista1 = listaTipo === 'lista_1'
+  return (
+    <span
+      style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+      className={clsx(
+        'px-3 py-1 rounded-full text-xs font-medium leading-none',
+        esLista1 ? 'bg-purple-50 text-purple-700' : 'bg-indigo-50 text-indigo-700'
+      )}
+    >
+      {esLista1 ? 'Lista 1' : 'Lista 2'}
+    </span>
+  )
+}
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Client[]>([])
@@ -192,13 +211,12 @@ export default function ClientesPage() {
       {loading ? (
         <div className="text-center py-16 text-gray-400 text-sm">Cargando clientes...</div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-warm-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Cliente</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Responsable</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Lista</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Categoría / Estado</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Prioridad</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Próx. acción</th>
@@ -212,9 +230,12 @@ export default function ClientesPage() {
 
                   {/* Cliente */}
                   <td className="px-4 py-3.5">
-                    <Link href={`/clientes/${c.id}`} className="font-medium text-gray-900 hover:text-sage-700 transition-colors">
-                      {c.razon_social}
-                    </Link>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link href={`/clientes/${c.id}`} className="font-medium text-gray-900 hover:text-sage-700 transition-colors">
+                        {c.razon_social}
+                      </Link>
+                      {renderListaBadge(c.lista_tipo)}
+                    </div>
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
                       {c.nombre_fantasia && <span className="text-xs text-gray-500">{c.nombre_fantasia}</span>}
                       {c.localidad && <span className="text-xs text-gray-400">{c.localidad}{c.provincia ? `, ${c.provincia}` : ''}</span>}
@@ -227,20 +248,6 @@ export default function ClientesPage() {
                     <span className="text-xs text-gray-600">
                       {c.vendedor_nombre ?? <span className="text-gray-300">—</span>}
                     </span>
-                  </td>
-
-                  {/* Lista */}
-                  <td className="px-4 py-3.5">
-                    {c.lista_tipo ? (
-                      <span className={clsx(
-                        'text-xs font-medium px-2 py-0.5 rounded-full',
-                        c.lista_tipo === 'lista_1' ? 'bg-purple-50 text-purple-700' : 'bg-indigo-50 text-indigo-700'
-                      )}>
-                        {listaTipoLabel[c.lista_tipo]}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-300">—</span>
-                    )}
                   </td>
 
                   {/* Categoría + Estado */}
@@ -295,7 +302,7 @@ export default function ClientesPage() {
 
               {clientes.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center py-16 text-gray-400">
+                  <td colSpan={7} className="text-center py-16 text-gray-400">
                     <p className="text-sm font-medium text-gray-500 mb-1">Sin resultados</p>
                     {hayFiltros && (
                       <button onClick={limpiar} className="text-xs text-sage-600 hover:underline mt-1">

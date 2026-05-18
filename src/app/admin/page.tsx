@@ -68,6 +68,7 @@ export default function AdminPage() {
 
   const [loadingClientes, setLoadingClientes] = useState(true)
   const [loadingUpdates,  setLoadingUpdates]  = useState(true)
+  const [errorClientes,   setErrorClientes]   = useState<string | null>(null)
 
   const hoy = isoDate(new Date())
   const [filtroVendedor, setFiltroVendedor] = useState('')
@@ -86,11 +87,12 @@ export default function AdminPage() {
     if (!isAdmin) return
     let cancelled = false
     setLoadingClientes(true)
+    setErrorClientes(null)
     fetchClientesAdmin({
       vendedor:  filtroVendedor || undefined,
       listaTipo: filtroLista    || undefined,
-    }).then(cs => { if (!cancelled) setClientes(cs) })
-      .catch(() => { if (!cancelled) setClientes([]) })
+    }).then(cs => { if (!cancelled) { setClientes(cs); setErrorClientes(null) } })
+      .catch((e: any) => { if (!cancelled) { setClientes([]); setErrorClientes(e?.message ?? 'Error al cargar la cartera') } })
       .finally(() => { if (!cancelled) setLoadingClientes(false) })
     return () => { cancelled = true }
   }, [isAdmin, filtroVendedor, filtroLista])
@@ -289,6 +291,12 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+
+      {errorClientes && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+          <span className="font-semibold">Error al cargar la cartera: </span>{errorClientes}
+        </div>
+      )}
 
       {/* Cards resumen — cartera (dependen de clientes) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
