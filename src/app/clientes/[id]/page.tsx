@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { fetchCliente, fetchVendedores, actualizarVendedor } from '@/lib/queries/clients'
-import { LISTA_TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
+import { LISTA_TIPO_OPTIONS, TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
 import { fetchHistorial } from '@/lib/queries/updates'
 import { createClient } from '@/lib/supabase/client'
 import type { Client, ClientUpdate, Profile } from '@/types'
@@ -34,6 +34,35 @@ const urgProxima: Record<string, { bg: string; text: string; badge: string; labe
   proximo: { bg: 'bg-sage-50 border-sage-100',   text: 'text-sage-700',   badge: 'bg-sage-100 text-sage-700',   label: 'Próximo' },
 }
 
+const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400 bg-white'
+const labelCls = 'text-xs text-gray-400 uppercase tracking-wide mb-1 block'
+
+type FormEdit = {
+  razon_social: string
+  nombre_fantasia: string
+  cuit: string
+  telefono: string
+  mail: string
+  localidad: string
+  provincia: string
+  tipo_cliente: string
+  origen: string
+}
+
+function clientToForm(c: Client): FormEdit {
+  return {
+    razon_social:   c.razon_social ?? '',
+    nombre_fantasia: c.nombre_fantasia ?? '',
+    cuit:           c.cuit ?? '',
+    telefono:       c.telefono ?? '',
+    mail:           c.mail ?? '',
+    localidad:      c.localidad ?? '',
+    provincia:      c.provincia ?? '',
+    tipo_cliente:   c.tipo_cliente ?? '',
+    origen:         c.origen ?? '',
+  }
+}
+
 export default function ClientePage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -42,12 +71,23 @@ export default function ClientePage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [vendedores, setVendedores] = useState<{ id: string; nombre: string }[]>([])
   const [showModal, setShowModal] = useState(false)
+
+  // Edición responsable
   const [editResponsable, setEditResponsable] = useState(false)
   const [nuevoResponsable, setNuevoResponsable] = useState<string>('')
   const [guardandoResp, setGuardandoResp] = useState(false)
+
+  // Edición lista
   const [editLista, setEditLista] = useState(false)
   const [nuevoLista, setNuevoLista] = useState<string>('')
   const [guardandoLista, setGuardandoLista] = useState(false)
+
+  // Edición datos del cliente
+  const [editando, setEditando] = useState(false)
+  const [formEdit, setFormEdit] = useState<FormEdit>({ razon_social: '', nombre_fantasia: '', cuit: '', telefono: '', mail: '', localidad: '', provincia: '', tipo_cliente: '', origen: '' })
+  const [guardandoEdit, setGuardandoEdit] = useState(false)
+  const [errorEdit, setErrorEdit] = useState<string | null>(null)
+
   const sb = createClient()
 
   const cargar = async () => {
@@ -65,6 +105,7 @@ export default function ClientePage() {
     setVendedores(vds)
     setNuevoResponsable(c.vendedor_asignado ?? '')
     setNuevoLista(c.lista_tipo ?? '')
+    setFormEdit(clientToForm(c))
   }
 
   useEffect(() => { cargar() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -104,6 +145,42 @@ export default function ClientePage() {
     }
   }
 
+  const guardarEdicion = async () => {
+    if (!formEdit.razon_social.trim()) {
+      setErrorEdit('El nombre del cliente es obligatorio.')
+      return
+    }
+    setGuardandoEdit(true)
+    setErrorEdit(null)
+    try {
+      const payload: Record<string, string | null> = {
+        razon_social:    formEdit.razon_social.trim(),
+        nombre_fantasia: formEdit.nombre_fantasia.trim() || null,
+        cuit:            formEdit.cuit.trim() || null,
+        telefono:        formEdit.telefono.trim() || null,
+        mail:            formEdit.mail.trim() || null,
+        localidad:       formEdit.localidad.trim() || null,
+        provincia:       formEdit.provincia.trim() || null,
+        tipo_cliente:    formEdit.tipo_cliente || null,
+        origen:          formEdit.origen.trim() || null,
+        ultima_actualizacion_at: new Date().toISOString(),
+      }
+      if (profile?.id) payload.ultima_actualizacion_por = profile.id
+
+      const { error } = await sb.from('clients').update(payload).eq('id', client.id)
+      if (error) throw error
+      setEditando(false)
+      cargar()
+    } catch (e: any) {
+      setErrorEdit(e?.message ?? 'Error al guardar. Verificá los permisos.')
+    } finally {
+      setGuardandoEdit(false)
+    }
+  }
+
+  const setField = (key: keyof FormEdit, val: string) =>
+    setFormEdit(f => ({ ...f, [key]: val }))
+
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
 
@@ -139,16 +216,10 @@ export default function ClientePage() {
                   <option value="">Sin definir</option>
                   {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
-                <button
-                  onClick={guardarLista}
-                  disabled={guardandoLista}
-                  className="text-xs bg-sage-600 text-white px-3 py-1 rounded-lg hover:bg-sage-800 transition disabled:opacity-50"
-                >
+                <button onClick={guardarLista} disabled={guardandoLista} className="text-xs bg-sage-600 text-white px-3 py-1 rounded-lg hover:bg-sage-800 transition disabled:opacity-50">
                   {guardandoLista ? '...' : 'Guardar'}
                 </button>
-                <button onClick={() => setEditLista(false)} className="text-xs text-gray-400 hover:text-gray-600">
-                  Cancelar
-                </button>
+                <button onClick={() => setEditLista(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
               </div>
             ) : (
               <button
@@ -250,43 +321,28 @@ export default function ClientePage() {
           <div className="bg-white border border-gray-100 rounded-2xl divide-y divide-gray-50 overflow-hidden">
             {historial.map((u, i) => (
               <div key={u.id} className={clsx('px-5 py-4', i === 0 && 'bg-warm-50/40')}>
-
-                {/* Cabecera */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="w-6 h-6 rounded-full bg-warm-100 flex items-center justify-center text-xs font-bold text-warm-700 flex-shrink-0">
                       {(u.user?.nombre ?? 'U').slice(0, 1).toUpperCase()}
                     </div>
                     <span className="text-sm font-semibold text-gray-800">{u.user?.nombre ?? 'Usuario'}</span>
-                    {i === 0 && (
-                      <span className="text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full font-medium">Último</span>
-                    )}
-                    {/* Canal y resultado como chips */}
-                    {u.canal && (
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{u.canal}</span>
-                    )}
-                    {u.resultado && (
-                      <span className="text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full font-medium">{u.resultado}</span>
-                    )}
+                    {i === 0 && <span className="text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full font-medium">Último</span>}
+                    {u.canal && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{u.canal}</span>}
+                    {u.resultado && <span className="text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full font-medium">{u.resultado}</span>}
                   </div>
                   <span className="text-xs text-gray-400 flex-shrink-0">
                     {format(parseISO(u.fecha_contacto), "d 'de' MMM yyyy", { locale: es })}
                   </span>
                 </div>
-
-                {/* Cambios */}
                 {u.cambios && (
                   <div className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 mb-2 font-mono">
                     {u.cambios}
                   </div>
                 )}
-
-                {/* Nota */}
                 {u.resumen && (
                   <p className="text-sm text-gray-700 leading-relaxed mb-2">&quot;{u.resumen}&quot;</p>
                 )}
-
-                {/* Estado / prioridad / próxima */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {u.estado && <EstadoBadge estado={u.estado} />}
                   {u.prioridad && <PrioridadBadge prioridad={u.prioridad} />}
@@ -313,70 +369,143 @@ export default function ClientePage() {
 
       {/* Datos del cliente */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-50">
+        <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Datos del cliente</p>
+          {!editando && (
+            <button
+              onClick={() => { setFormEdit(clientToForm(client)); setErrorEdit(null); setEditando(true) }}
+              className="text-xs text-sage-600 hover:text-sage-800 font-medium transition"
+            >
+              Editar datos
+            </button>
+          )}
         </div>
-        <div className="px-5 py-4 grid grid-cols-2 gap-x-8 gap-y-4">
-          {/* Responsable — editable */}
-          <div className="col-span-2">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Responsable</p>
-            {editResponsable ? (
-              <div className="flex items-center gap-2">
-                <select
-                  value={nuevoResponsable}
-                  onChange={e => setNuevoResponsable(e.target.value)}
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
-                >
-                  <option value="">Sin asignar</option>
-                  {vendedores.map(v => (
-                    <option key={v.id} value={v.id}>{v.nombre}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={guardarResponsable}
-                  disabled={guardandoResp}
-                  className="text-xs bg-sage-600 text-white px-3 py-1.5 rounded-lg hover:bg-sage-800 transition disabled:opacity-50"
-                >
-                  {guardandoResp ? '...' : 'Guardar'}
-                </button>
-                <button onClick={() => setEditResponsable(false)} className="text-xs text-gray-400 hover:text-gray-600">
-                  Cancelar
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-800">
-                  {client.vendedor_nombre ?? <span className="text-amber-600 font-medium">Sin asignar</span>}
-                </span>
-                <button
-                  onClick={() => setEditResponsable(true)}
-                  className="text-xs text-gray-400 hover:text-sage-600 transition"
-                >
-                  Cambiar
-                </button>
-              </div>
+
+        {editando ? (
+          /* ── Modo edición ── */
+          <div className="px-5 py-5 space-y-4">
+            {errorEdit && (
+              <div className="bg-red-50 text-red-700 text-sm rounded-lg px-4 py-3">{errorEdit}</div>
             )}
-          </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Empresa / nombre *</label>
+                <input type="text" value={formEdit.razon_social} onChange={e => setField('razon_social', e.target.value)} className={inputCls} />
+              </div>
 
-          {[
-            ['CUIT', client.cuit],
-            ['Localidad', [client.localidad, client.provincia].filter(Boolean).join(', ')],
-            ['Teléfono', client.telefono],
-            ['Tipo de cliente', client.tipo_cliente?.replace(/_/g, ' ')],
-            ['Mail', client.mail],
-            ['Origen', client.origen],
-            ['Última compra', client.fecha_ultima_compra
-              ? format(parseISO(client.fecha_ultima_compra), "d 'de' MMM yyyy", { locale: es }) : null],
-            ['Alta en sistema', client.fecha_alta_sistema
-              ? format(parseISO(client.fecha_alta_sistema), "d 'de' MMM yyyy", { locale: es }) : null],
-          ].map(([label, val]) => (
-            <div key={label as string}>
-              <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
-              <p className="text-sm text-gray-800">{val || <span className="text-gray-300">—</span>}</p>
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Persona de contacto</label>
+                <input type="text" value={formEdit.nombre_fantasia} onChange={e => setField('nombre_fantasia', e.target.value)} className={inputCls} placeholder="Ej: Laura de compras" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Teléfono / WhatsApp</label>
+                <input type="text" value={formEdit.telefono} onChange={e => setField('telefono', e.target.value)} className={inputCls} />
+              </div>
+
+              <div>
+                <label className={labelCls}>Mail</label>
+                <input type="email" value={formEdit.mail} onChange={e => setField('mail', e.target.value)} className={inputCls} />
+              </div>
+
+              <div>
+                <label className={labelCls}>Localidad</label>
+                <input type="text" value={formEdit.localidad} onChange={e => setField('localidad', e.target.value)} className={inputCls} />
+              </div>
+
+              <div>
+                <label className={labelCls}>Provincia</label>
+                <input type="text" value={formEdit.provincia} onChange={e => setField('provincia', e.target.value)} className={inputCls} />
+              </div>
+
+              <div>
+                <label className={labelCls}>CUIT</label>
+                <input type="text" value={formEdit.cuit} onChange={e => setField('cuit', e.target.value)} className={inputCls} />
+              </div>
+
+              <div>
+                <label className={labelCls}>Tipo de cliente</label>
+                <select value={formEdit.tipo_cliente} onChange={e => setField('tipo_cliente', e.target.value)} className={inputCls}>
+                  <option value="">Sin definir</option>
+                  {TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Origen</label>
+                <input type="text" value={formEdit.origen} onChange={e => setField('origen', e.target.value)} className={inputCls} placeholder="Showroom, Instagram, referido..." />
+              </div>
             </div>
-          ))}
-        </div>
+
+            <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+              <button
+                onClick={guardarEdicion}
+                disabled={guardandoEdit}
+                className="text-sm bg-sage-600 text-white px-5 py-2 rounded-xl hover:bg-sage-800 transition disabled:opacity-50 font-medium"
+              >
+                {guardandoEdit ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+              <button
+                onClick={() => { setEditando(false); setErrorEdit(null) }}
+                className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2 rounded-xl hover:bg-gray-50 transition"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Modo lectura ── */
+          <div className="px-5 py-4 grid grid-cols-2 gap-x-8 gap-y-4">
+            {/* Responsable — editable inline */}
+            <div className="col-span-2">
+              <p className={labelCls}>Responsable</p>
+              {editResponsable ? (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={nuevoResponsable}
+                    onChange={e => setNuevoResponsable(e.target.value)}
+                    className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
+                  >
+                    <option value="">Sin asignar</option>
+                    {vendedores.map(v => (
+                      <option key={v.id} value={v.id}>{v.nombre}</option>
+                    ))}
+                  </select>
+                  <button onClick={guardarResponsable} disabled={guardandoResp} className="text-xs bg-sage-600 text-white px-3 py-1.5 rounded-lg hover:bg-sage-800 transition disabled:opacity-50">
+                    {guardandoResp ? '...' : 'Guardar'}
+                  </button>
+                  <button onClick={() => setEditResponsable(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-800">
+                    {client.vendedor_nombre ?? <span className="text-amber-600 font-medium">Sin asignar</span>}
+                  </span>
+                  <button onClick={() => setEditResponsable(true)} className="text-xs text-gray-400 hover:text-sage-600 transition">Cambiar</button>
+                </div>
+              )}
+            </div>
+
+            {[
+              ['CUIT', client.cuit],
+              ['Localidad', [client.localidad, client.provincia].filter(Boolean).join(', ')],
+              ['Teléfono', client.telefono],
+              ['Tipo de cliente', client.tipo_cliente?.replace(/_/g, ' ')],
+              ['Mail', client.mail],
+              ['Origen', client.origen],
+              ['Última compra', client.fecha_ultima_compra
+                ? format(parseISO(client.fecha_ultima_compra), "d 'de' MMM yyyy", { locale: es }) : null],
+              ['Alta en sistema', client.fecha_alta_sistema
+                ? format(parseISO(client.fecha_alta_sistema), "d 'de' MMM yyyy", { locale: es }) : null],
+            ].map(([label, val]) => (
+              <div key={label as string}>
+                <p className={labelCls}>{label}</p>
+                <p className="text-sm text-gray-800">{val || <span className="text-gray-300">—</span>}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {showModal && profile && (
