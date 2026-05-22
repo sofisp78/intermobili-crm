@@ -130,6 +130,9 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
             {c.nombre_fantasia && <span>Contacto: <span className="font-medium text-gray-700">{c.nombre_fantasia}</span></span>}
             {ubicacion && <span>{ubicacion}</span>}
             {c.vendedor_nombre && <span>Responsable: {c.vendedor_nombre}</span>}
+            {c.numero_cliente && (
+              <span className="font-mono text-xs text-gray-400">N° cliente: {c.numero_cliente}</span>
+            )}
           </div>
 
           <div className="mt-3 rounded-xl bg-white/80 border border-black/5 px-3 py-2">

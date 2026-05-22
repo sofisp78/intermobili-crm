@@ -93,18 +93,23 @@ export default function DashboardPage() {
         const { data: { user } } = await sb.auth.getUser()
         if (!user) return
 
-        const { data: p, error: pe } = await sb.from('profiles').select('*').eq('id', user.id).single()
+        const { data: p, error: pe } = await sb
+          .from('profiles')
+          .select('id, nombre, email, role, vendedor_nombre, created_at')
+          .eq('id', user.id)
+          .single()
         if (pe) throw pe
 
         profileRef.current = p
         setProfile(p)
 
         if (p?.role === 'admin') {
-          const vds = await fetchVendedores()
+          // Paraleliza la carga de clientes y vendedores — son queries independientes
+          const [, vds] = await Promise.all([cargarDatos(p, ''), fetchVendedores()])
           setVendedores(vds)
+        } else {
+          await cargarDatos(p, '')
         }
-
-        await cargarDatos(p, '')
       } catch (e: any) {
         setError(e?.message ?? JSON.stringify(e))
       } finally {
@@ -159,7 +164,8 @@ export default function DashboardPage() {
       (c.mail?.toLowerCase().includes(q) ?? false) ||
       (c.vendedor_nombre?.toLowerCase().includes(q) ?? false) ||
       (c.localidad?.toLowerCase().includes(q) ?? false) ||
-      (c.provincia?.toLowerCase().includes(q) ?? false)
+      (c.provincia?.toLowerCase().includes(q) ?? false) ||
+      (c.numero_cliente?.toLowerCase().includes(q) ?? false)
     )
   }, [clientesVisibles, busqueda])
 
@@ -319,7 +325,7 @@ export default function DashboardPage() {
         </svg>
         <input
           type="text"
-          placeholder="Buscar por cliente, contacto, teléfono, responsable..."
+          placeholder="Buscar por cliente, contacto, teléfono, nro. cliente, responsable..."
           value={busqueda}
           onChange={e => setBusqueda(e.target.value)}
           className="w-full border border-gray-200 rounded-xl pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400 bg-white"

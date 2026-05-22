@@ -15,13 +15,22 @@ export async function actualizarCampoRapido(
   if (error) throw error
 }
 
+// Solo columnas renderizadas en el historial; excluye campos de auditoría interna
+const COLS_HISTORIAL = [
+  'id', 'client_id', 'user_id', 'fecha_contacto',
+  'resumen', 'estado', 'prioridad', 'categoria_cliente',
+  'fecha_proxima_accion', 'cambios', 'canal', 'resultado',
+  'profiles!client_updates_user_id_fkey(nombre)',
+].join(', ')
+
 export async function fetchHistorial(clientId: string): Promise<ClientUpdate[]> {
   const sb = createClient()
   const { data, error } = await sb
     .from('client_updates')
-    .select('*, profiles!client_updates_user_id_fkey(nombre)')
+    .select(COLS_HISTORIAL)
     .eq('client_id', clientId)
     .order('created_at', { ascending: false })
+    .limit(50)
   if (error) throw error
   return (data as any[]).map(r => ({ ...r, user: { nombre: r.profiles?.nombre } }))
 }

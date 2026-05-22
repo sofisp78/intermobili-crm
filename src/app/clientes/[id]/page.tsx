@@ -98,7 +98,7 @@ export default function ClientePage() {
     const [c, h, { data: p }, vds] = await Promise.all([
       fetchCliente(id),
       fetchHistorial(id),
-      sb.from('profiles').select('*').eq('id', user.id).single(),
+      sb.from('profiles').select('id, nombre, email, role, vendedor_nombre, created_at').eq('id', user.id).single(),
       fetchVendedores(),
     ])
     setClient(c)

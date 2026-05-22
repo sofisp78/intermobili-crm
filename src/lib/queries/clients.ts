@@ -15,7 +15,7 @@ const COLS_DIA = [
   'id', 'razon_social', 'nombre_fantasia', 'telefono', 'mail',
   'provincia', 'localidad', 'vendedor_asignado',
   'categoria_cliente', 'prioridad', 'estado', 'lista_tipo',
-  'ultimo_contacto', 'resumen', 'fecha_proxima_accion',
+  'ultimo_contacto', 'resumen', 'fecha_proxima_accion', 'numero_cliente',
   'profiles!vendedor_asignado(nombre, vendedor_nombre)',
 ].join(', ')
 
@@ -25,6 +25,16 @@ const COLS_LISTA = [
   'localidad', 'provincia', 'vendedor_asignado',
   'categoria_cliente', 'estado', 'prioridad', 'lista_tipo',
   'fecha_proxima_accion', 'ultimo_contacto', 'numero_cliente',
+  'profiles!vendedor_asignado(nombre, vendedor_nombre)',
+].join(', ')
+
+// Columnas para la ficha de cliente (detalle completo)
+const COLS_DETALLE = [
+  'id', 'razon_social', 'nombre_fantasia', 'cuit', 'telefono', 'mail',
+  'provincia', 'localidad', 'vendedor_asignado',
+  'categoria_cliente', 'tipo_cliente', 'potencial', 'estado', 'prioridad',
+  'origen', 'ultimo_contacto', 'resumen', 'fecha_proxima_accion', 'lista_tipo',
+  'fecha_alta_sistema', 'fecha_ultima_compra', 'numero_cliente',
   'profiles!vendedor_asignado(nombre, vendedor_nombre)',
 ].join(', ')
 
@@ -159,12 +169,12 @@ export async function fetchCliente(id: string) {
   const sb = createClient()
   const { data, error } = await sb
     .from('clients')
-    .select('*, profiles!vendedor_asignado(nombre, vendedor_nombre)')
+    .select(COLS_DETALLE)
     .eq('id', id)
     .single()
   if (error) throw error
   return {
-    ...data,
+    ...(data as any),
     vendedor_nombre: mapVendedorNombre(data),
   } as Client
 }
