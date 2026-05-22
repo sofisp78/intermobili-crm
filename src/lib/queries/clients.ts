@@ -24,7 +24,7 @@ const COLS_LISTA = [
   'id', 'razon_social', 'nombre_fantasia', 'telefono',
   'localidad', 'provincia', 'vendedor_asignado',
   'categoria_cliente', 'estado', 'prioridad', 'lista_tipo',
-  'fecha_proxima_accion', 'ultimo_contacto',
+  'fecha_proxima_accion', 'ultimo_contacto', 'numero_cliente',
   'profiles!vendedor_asignado(nombre, vendedor_nombre)',
 ].join(', ')
 
@@ -143,6 +143,7 @@ export async function fetchClientes(filtros: {
       `telefono.ilike.%${search}%`,
       `localidad.ilike.%${search}%`,
       `provincia.ilike.%${search}%`,
+      `numero_cliente.ilike.%${search}%`,
     ].join(','))
   }
 

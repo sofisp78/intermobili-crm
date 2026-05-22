@@ -47,19 +47,21 @@ type FormEdit = {
   provincia: string
   tipo_cliente: string
   origen: string
+  numero_cliente: string
 }
 
 function clientToForm(c: Client): FormEdit {
   return {
-    razon_social:   c.razon_social ?? '',
+    razon_social:    c.razon_social ?? '',
     nombre_fantasia: c.nombre_fantasia ?? '',
-    cuit:           c.cuit ?? '',
-    telefono:       c.telefono ?? '',
-    mail:           c.mail ?? '',
-    localidad:      c.localidad ?? '',
-    provincia:      c.provincia ?? '',
-    tipo_cliente:   c.tipo_cliente ?? '',
-    origen:         c.origen ?? '',
+    cuit:            c.cuit ?? '',
+    telefono:        c.telefono ?? '',
+    mail:            c.mail ?? '',
+    localidad:       c.localidad ?? '',
+    provincia:       c.provincia ?? '',
+    tipo_cliente:    c.tipo_cliente ?? '',
+    origen:          c.origen ?? '',
+    numero_cliente:  c.numero_cliente ?? '',
   }
 }
 
@@ -84,7 +86,7 @@ export default function ClientePage() {
 
   // Edición datos del cliente
   const [editando, setEditando] = useState(false)
-  const [formEdit, setFormEdit] = useState<FormEdit>({ razon_social: '', nombre_fantasia: '', cuit: '', telefono: '', mail: '', localidad: '', provincia: '', tipo_cliente: '', origen: '' })
+  const [formEdit, setFormEdit] = useState<FormEdit>({ razon_social: '', nombre_fantasia: '', cuit: '', telefono: '', mail: '', localidad: '', provincia: '', tipo_cliente: '', origen: '', numero_cliente: '' })
   const [guardandoEdit, setGuardandoEdit] = useState(false)
   const [errorEdit, setErrorEdit] = useState<string | null>(null)
 
@@ -163,6 +165,8 @@ export default function ClientePage() {
         provincia:       formEdit.provincia.trim() || null,
         tipo_cliente:    formEdit.tipo_cliente || null,
         origen:          formEdit.origen.trim() || null,
+        // Conservar ceros adelante — guardar como texto exacto
+        numero_cliente:  formEdit.numero_cliente.trim() || null,
         ultima_actualizacion_at: new Date().toISOString(),
       }
       if (profile?.id) payload.ultima_actualizacion_por = profile.id
@@ -436,6 +440,11 @@ export default function ClientePage() {
                 <label className={labelCls}>Origen</label>
                 <input type="text" value={formEdit.origen} onChange={e => setField('origen', e.target.value)} className={inputCls} placeholder="Showroom, Instagram, referido..." />
               </div>
+
+              <div>
+                <label className={labelCls}>Nro. cliente (sistema)</label>
+                <input type="text" value={formEdit.numero_cliente} onChange={e => setField('numero_cliente', e.target.value)} className={inputCls} placeholder="Ej: 0000005" />
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
@@ -488,6 +497,7 @@ export default function ClientePage() {
             </div>
 
             {[
+              ['Nro. cliente', client.numero_cliente],
               ['CUIT', client.cuit],
               ['Localidad', [client.localidad, client.provincia].filter(Boolean).join(', ')],
               ['Teléfono', client.telefono],

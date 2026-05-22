@@ -137,7 +137,7 @@ export default function ClientesPage() {
         </svg>
         <input
           type="text"
-          placeholder="Buscar por cliente, fantasía, CUIT, mail, teléfono o zona..."
+          placeholder="Buscar por cliente, fantasía, CUIT, mail, teléfono, zona o nro. cliente..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400 bg-white"
@@ -235,6 +235,9 @@ export default function ClientesPage() {
                         {c.razon_social}
                       </Link>
                       {renderListaBadge(c.lista_tipo)}
+                      {c.numero_cliente && (
+                        <span className="text-xs text-gray-400 font-mono">#{c.numero_cliente}</span>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
                       {c.nombre_fantasia && <span className="text-xs text-gray-500">{c.nombre_fantasia}</span>}

@@ -64,6 +64,8 @@ const COLUMN_MAP: Record<string, keyof Client> = {
   'lista precios':       'lista_tipo',
   'lista':               'lista_tipo',
   'listaprecio':         'lista_tipo',
+  // Primera columna "Código" = número de cliente del sistema (con ceros adelante)
+  'codigo':              'numero_cliente',
 }
 
 // Columnas que existen en el CSV pero no se importan (para no confundir el debug)
@@ -86,18 +88,31 @@ export async function parsearCSV(
     reader.onload = (e) => {
       const text = e.target?.result as string
 
+      // Renombra duplicados: segunda "Código" pasa a ser "__dup2__Código", etc.
+      // Así podemos distinguir la primera (número de cliente) de la segunda (código de localidad).
+      const headerCount: Record<string, number> = {}
+
       Papa.parse(text, {
         header: true,
         delimiter: ';',
         skipEmptyLines: true,
-        // NO transformamos el header aquí — lo normalizamos nosotros en el loop
+        transformHeader: (h) => {
+          const key = h.trim()
+          if (!headerCount[key]) {
+            headerCount[key] = 1
+            return key
+          }
+          const n = ++headerCount[key]
+          return `__dup${n}__${key}`
+        },
         complete: (results) => {
           const rawHeaders: string[] = results.meta.fields ?? []
           const columnsFound: string[] = []
           const columnsIgnored: string[] = []
 
-          // Clasificar cada header del CSV
+          // Clasificar cada header del CSV (ignorar los marcadores de duplicado)
           for (const h of rawHeaders) {
+            if (h.startsWith('__dup')) continue
             const norm = normalizar(h)
             if (COLUMN_MAP[norm]) {
               columnsFound.push(h)

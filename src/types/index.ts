@@ -43,6 +43,7 @@ export interface Client {
   ultima_actualizacion_at: string | null
   vendedor_original: string | null
   lista_tipo: ListaTipo | null
+  numero_cliente: string | null
   created_at: string
   updated_at: string
 }
