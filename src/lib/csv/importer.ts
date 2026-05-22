@@ -1,9 +1,9 @@
 import Papa from 'papaparse'
 import type { Client } from '@/types'
 
-// Quita acentos y pasa a minúsculas — hace el matching de headers mucho más robusto
+// Quita acentos, pasa a minúsculas y reemplaza espacios por _ — matching robusto
 const normalizar = (s: string) =>
-  s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_')
 
 const limpiarValor = (v: unknown): string => {
   if (v == null) return ''
@@ -39,37 +39,51 @@ const parsearFecha = (v: string): string | null => {
   return null
 }
 
-// Claves ya normalizadas (sin acentos, minúsculas)
+// Claves ya normalizadas (sin acentos, minúsculas, espacios → _)
 const COLUMN_MAP: Record<string, keyof Client> = {
-  'razon social':        'razon_social',
+  // numero_cliente
+  'codigo':              'numero_cliente',
+  // razon_social
+  'razon_social':        'razon_social',
   'razonsocial':         'razon_social',
-  'nombre fantasia':     'nombre_fantasia',
+  // nombre_fantasia
+  'nombre_fantasia':     'nombre_fantasia',
   'nombrefantasia':      'nombre_fantasia',
+  // cuit
   'c.u.i.t.':           'cuit',
   'cuit':                'cuit',
+  // telefono
   'telefono':            'telefono',
   'tel':                 'telefono',
+  // mail
   'mail':                'mail',
   'email':               'mail',
   'e-mail':              'mail',
+  // localidad / provincia
   'provincia':           'provincia',
   'localidad':           'localidad',
-  'fecha alta':          'fecha_alta_sistema',
+  // fecha_alta_sistema
+  'fecha_alta':          'fecha_alta_sistema',
   'fechaalta':           'fecha_alta_sistema',
-  'fecha ult. compra':   'fecha_ultima_compra',
-  'fecha ult compra':    'fecha_ultima_compra',
-  'fecha ultima compra': 'fecha_ultima_compra',
+  'fecha_alta_sistema':  'fecha_alta_sistema',
+  // fecha_ultima_compra
+  'fecha_ult_compra':    'fecha_ultima_compra',
+  'fecha_ult._compra':   'fecha_ultima_compra',
+  'fecha_ultima_compra': 'fecha_ultima_compra',
   'fechaultcompra':      'fecha_ultima_compra',
+  // lista_tipo
   'listaprecios':        'lista_tipo',
-  'lista precios':       'lista_tipo',
-  'lista':               'lista_tipo',
+  'lista_precios':       'lista_tipo',
   'listaprecio':         'lista_tipo',
-  // Primera columna "Código" = número de cliente del sistema (con ceros adelante)
-  'codigo':              'numero_cliente',
+  'lista':               'lista_tipo',
 }
 
 // Columnas que existen en el CSV pero no se importan (para no confundir el debug)
-const COLUMNAS_IGNORADAS = new Set(['vendedor', 'vendedor asignado', 'categoria', 'tipo'])
+const COLUMNAS_IGNORADAS = new Set([
+  'vendedor', 'vendedor_asignado', 'categoria', 'tipo',
+  'codigo_localidad', 'zona', 'tipo_actividad', 'codigo_postal', 'barrio',
+  'estado', 'telefono_celular', 'direccion',
+])
 
 export interface ImportResult {
   rows: Partial<Client>[]
