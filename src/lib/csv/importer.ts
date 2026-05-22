@@ -1,9 +1,17 @@
 import Papa from 'papaparse'
 import type { Client } from '@/types'
 
-// Quita acentos, pasa a minúsculas y reemplaza espacios por _ — matching robusto
+// Quita prefijos __dupN__ de PapaParse, acentos, puntos y normaliza a snake_case
 const normalizar = (s: string) =>
-  s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_')
+  s
+    .replace(/^__dup\d+__/, '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\./g, '')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
 
 const limpiarValor = (v: unknown): string => {
   if (v == null) return ''
@@ -89,8 +97,16 @@ export interface ImportResult {
   rows: Partial<Client>[]
   skipped: number
   total: number
-  columnsFound: string[]    // headers del CSV que se mapearon a un campo
-  columnsIgnored: string[]  // headers presentes pero sin mapeo
+  columnsFound: string[]
+  columnsIgnored: string[]
+  debug: {
+    headersRaw: string[]
+    headersNorm: string[]
+    mappings: string[]
+    firstRowKeys: string[]
+    firstRowMapped: Record<string, unknown>
+    firstRowSkipReason: string
+  }
 }
 
 export async function parsearCSV(
@@ -124,9 +140,12 @@ export async function parsearCSV(
           const columnsFound: string[] = []
           const columnsIgnored: string[] = []
 
-          // Clasificar cada header del CSV (ignorar los marcadores de duplicado)
+          const visibleHeaders = rawHeaders
+          const headersNorm = visibleHeaders.map(normalizar)
+          const mappings = visibleHeaders.map(h => `${h} → norm:"${normalizar(h)}" → campo:${COLUMN_MAP[normalizar(h)] ?? '(sin mapeo)'}`)
+
+          // Clasificar cada header del CSV — normalizar quita prefijos __dupN__ automáticamente
           for (const h of rawHeaders) {
-            if (h.startsWith('__dup')) continue
             const norm = normalizar(h)
             if (COLUMN_MAP[norm]) {
               columnsFound.push(h)
@@ -135,10 +154,22 @@ export async function parsearCSV(
             }
           }
 
+          console.log('[CSV debug] headers raw:', visibleHeaders)
+          console.log('[CSV debug] headers normalizados:', headersNorm)
+          console.log('[CSV debug] mappings:', mappings)
+
+          const allRows = results.data as Record<string, string>[]
+          const firstRaw = allRows[0] ?? {}
+          console.log('[CSV debug] primera fila raw:', firstRaw)
+
           const rows: Partial<Client>[] = []
           let skipped = 0
 
-          for (const raw of results.data as Record<string, string>[]) {
+          // Debug de primera fila
+          const firstRowMapped: Record<string, unknown> = {}
+          let firstRowSkipReason = ''
+
+          for (const raw of allRows) {
             const mapped: Partial<Client> = {
               vendedor_asignado: vendedorId,
               categoria_cliente: 'cliente_activo',
@@ -148,7 +179,8 @@ export async function parsearCSV(
             let tieneRazonSocial = false
 
             for (const [col, val] of Object.entries(raw)) {
-              const field = COLUMN_MAP[normalizar(col)]
+              const norm = normalizar(col)
+              const field = COLUMN_MAP[norm]
               if (!field) continue
 
               const limpio = limpiarValor(val)
@@ -164,11 +196,20 @@ export async function parsearCSV(
               if (field === 'razon_social' && limpio) tieneRazonSocial = true
             }
 
+            if (rows.length === 0 && skipped === 0) {
+              Object.assign(firstRowMapped, mapped)
+              firstRowSkipReason = tieneRazonSocial
+                ? '(fila válida)'
+                : `razon_social ausente o vacío. Keys de la fila: [${Object.keys(raw).join(', ')}]`
+              console.log('[CSV debug] primera fila mapeada:', mapped)
+              console.log('[CSV debug] tieneRazonSocial:', tieneRazonSocial)
+            }
+
             if (!tieneRazonSocial) { skipped++; continue }
             rows.push(mapped)
           }
 
-          resolve({ rows, skipped, total: results.data.length, columnsFound, columnsIgnored })
+          resolve({ rows, skipped, total: allRows.length, columnsFound, columnsIgnored, debug: { headersRaw: visibleHeaders, headersNorm, mappings, firstRowKeys: Object.keys(firstRaw), firstRowMapped, firstRowSkipReason } })
         },
         error: reject,
       })
