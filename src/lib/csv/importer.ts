@@ -84,11 +84,28 @@ const COLUMN_MAP: Record<string, keyof Client> = {
   'lista_precios':       'lista_tipo',
   'listaprecio':         'lista_tipo',
   'lista':               'lista_tipo',
+  // vendedor_original — se guarda tal cual; la página resuelve el ID
+  'vendedor':            'vendedor_original',
+  'vendedor_asignado':   'vendedor_original',
+}
+
+// Alias de nombres de vendedor del CSV → nombre en profiles.
+// Claves ya normalizadas (minúsculas, sin acentos, espacios simples).
+// null = no asignar (e.g. entradas que no son vendedores reales).
+export const VENDEDOR_ALIAS: Record<string, string | string[] | null> = {
+  'camila spampinato':   'camila',
+  'liliana artemisi':    'liliana',
+  'sofia spampinato':    'sofia',
+  'naza leguizamon':     ['naza', 'nazareno'],
+  'luciana cabancic':    'luciana',
+  'domm':                ['dominique', 'domm'],
+  'intermobili':         null,
+  'administrador sistema': null,
 }
 
 // Columnas que existen en el CSV pero no se importan (para no confundir el debug)
 const COLUMNAS_IGNORADAS = new Set([
-  'vendedor', 'vendedor_asignado', 'categoria', 'tipo',
+  'categoria', 'tipo',
   'codigo_localidad', 'zona', 'tipo_actividad', 'codigo_postal', 'barrio',
   'estado', 'telefono_celular', 'direccion',
 ])
@@ -99,6 +116,7 @@ export interface ImportResult {
   total: number
   columnsFound: string[]
   columnsIgnored: string[]
+  vendedoresEnCSV: string[]   // nombres únicos de vendedor encontrados en el CSV
   debug: {
     headersRaw: string[]
     headersNorm: string[]
@@ -109,10 +127,7 @@ export interface ImportResult {
   }
 }
 
-export async function parsearCSV(
-  file: File,
-  vendedorId: string
-): Promise<ImportResult> {
+export async function parsearCSV(file: File): Promise<ImportResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -163,6 +178,7 @@ export async function parsearCSV(
           console.log('[CSV debug] primera fila raw:', firstRaw)
 
           const rows: Partial<Client>[] = []
+          const vendedoresSet = new Set<string>()
           let skipped = 0
 
           // Debug de primera fila
@@ -171,7 +187,7 @@ export async function parsearCSV(
 
           for (const raw of allRows) {
             const mapped: Partial<Client> = {
-              vendedor_asignado: vendedorId,
+              vendedor_asignado: null,   // la página resuelve el ID contra profiles
               categoria_cliente: 'cliente_activo',
               estado:            'en_curso',
             }
@@ -196,6 +212,8 @@ export async function parsearCSV(
               if (field === 'razon_social' && limpio) tieneRazonSocial = true
             }
 
+            if (mapped.vendedor_original) vendedoresSet.add(mapped.vendedor_original)
+
             if (rows.length === 0 && skipped === 0) {
               Object.assign(firstRowMapped, mapped)
               firstRowSkipReason = tieneRazonSocial
@@ -209,7 +227,7 @@ export async function parsearCSV(
             rows.push(mapped)
           }
 
-          resolve({ rows, skipped, total: allRows.length, columnsFound, columnsIgnored, debug: { headersRaw: visibleHeaders, headersNorm, mappings, firstRowKeys: Object.keys(firstRaw), firstRowMapped, firstRowSkipReason } })
+          resolve({ rows, skipped, total: allRows.length, columnsFound, columnsIgnored, vendedoresEnCSV: Array.from(vendedoresSet), debug: { headersRaw: visibleHeaders, headersNorm, mappings, firstRowKeys: Object.keys(firstRaw), firstRowMapped, firstRowSkipReason } })
         },
         error: reject,
       })

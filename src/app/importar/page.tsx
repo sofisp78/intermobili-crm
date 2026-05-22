@@ -1,12 +1,23 @@
 'use client'
 import { useState, useRef } from 'react'
-import { parsearCSV, chunkArray, type ImportResult } from '@/lib/csv/importer'
+import { parsearCSV, chunkArray, VENDEDOR_ALIAS, type ImportResult } from '@/lib/csv/importer'
 import { createClient } from '@/lib/supabase/client'
 import { useRequireAdmin } from '@/lib/auth/useRequireAdmin'
+
+interface VendedorStats {
+  asignados: number
+  sinAsignar: number
+  detectados: string[]
+  noEncontrados: string[]
+}
+
+const normNombre = (s: string) =>
+  s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ')
 
 export default function ImportarPage() {
   const { isAdmin, loading: checkingRole, error: roleError } = useRequireAdmin()
   const [resultado, setResultado] = useState<ImportResult | null>(null)
+  const [vendedorStats, setVendedorStats] = useState<VendedorStats | null>(null)
   const [importing, setImporting] = useState(false)
   const [progress, setProgress] = useState('')
   const [done, setDone] = useState(false)
@@ -17,12 +28,57 @@ export default function ImportarPage() {
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setError(''); setDone(false); setResultado(null)
+    setError(''); setDone(false); setResultado(null); setVendedorStats(null)
     try {
       if (!isAdmin) throw new Error('Solo administradores pueden importar clientes.')
-      const { data: { user } } = await sb.auth.getUser()
-      if (!user) throw new Error('No hay sesión activa.')
-      const r = await parsearCSV(file, user.id)
+
+      const r = await parsearCSV(file)
+
+      // Resolver vendedores: buscar en profiles por role='vendedor'
+      const { data: profiles } = await sb
+        .from('profiles')
+        .select('id, nombre, vendedor_nombre')
+        .eq('role', 'vendedor')
+
+      const profileMap = new Map<string, string>()
+      for (const p of (profiles ?? [])) {
+        if (p.nombre)          profileMap.set(normNombre(p.nombre), p.id)
+        if (p.vendedor_nombre) profileMap.set(normNombre(p.vendedor_nombre), p.id)
+      }
+
+      let asignados = 0
+      const noEncontradosSet = new Set<string>()
+      for (const row of r.rows) {
+        if (!row.vendedor_original) continue
+
+        const normOrig = normNombre(row.vendedor_original)
+
+        if (normOrig in VENDEDOR_ALIAS) {
+          const alias = VENDEDOR_ALIAS[normOrig]
+          if (alias === null) continue   // INTERMOBILI / ADMINISTRADOR SISTEMA — no asignar
+
+          const nombres = Array.isArray(alias) ? alias : [alias]
+          for (const nombre of nombres) {
+            const id = profileMap.get(normNombre(nombre))
+            if (id) { row.vendedor_asignado = id; asignados++; break }
+          }
+          if (!row.vendedor_asignado) noEncontradosSet.add(row.vendedor_original)
+          continue
+        }
+
+        // Sin alias — búsqueda directa por nombre normalizado
+        const id = profileMap.get(normOrig) ?? null
+        row.vendedor_asignado = id
+        if (id) asignados++
+        else noEncontradosSet.add(row.vendedor_original)
+      }
+
+      setVendedorStats({
+        asignados,
+        sinAsignar: r.rows.length - asignados,
+        detectados: r.vendedoresEnCSV,
+        noEncontrados: Array.from(noEncontradosSet),
+      })
       setResultado(r)
     } catch (err: any) {
       setError(err?.message ?? JSON.stringify(err))
@@ -135,6 +191,28 @@ export default function ImportarPage() {
                 </>
               )}
             </div>
+
+            {/* Resumen de vendedores */}
+            {vendedorStats && (
+              <div className="rounded-xl border border-gray-100 px-4 py-3 text-xs space-y-1">
+                <p className="text-gray-500 font-medium mb-1">Vendedores</p>
+                <p className="text-gray-600">
+                  Asignados: <span className="text-sage-700 font-medium">{vendedorStats.asignados}</span>
+                  {' · '}
+                  Sin asignar: <span className="text-amber-600 font-medium">{vendedorStats.sinAsignar}</span>
+                </p>
+                {vendedorStats.detectados.length > 0 && (
+                  <p className="text-gray-400 mt-1">
+                    Detectados en CSV: {vendedorStats.detectados.join(' · ')}
+                  </p>
+                )}
+                {vendedorStats.noEncontrados.length > 0 && (
+                  <p className="text-amber-600 mt-1">
+                    No encontrados en sistema: {vendedorStats.noEncontrados.join(' · ')}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Preview */}
             <div className="overflow-x-auto">
