@@ -48,9 +48,10 @@ const parsearFecha = (v: string): string | null => {
 }
 
 // Claves ya normalizadas (sin acentos, minúsculas, espacios → _)
+// Nota: "codigo" NO está acá. El CSV tiene varias columnas "Código"
+// y la que corresponde a numero_cliente se detecta por posición
+// (ver findNumeroClienteHeader más abajo).
 const COLUMN_MAP: Record<string, keyof Client> = {
-  // numero_cliente
-  'codigo':              'numero_cliente',
   // razon_social
   'razon_social':        'razon_social',
   'razonsocial':         'razon_social',
@@ -110,6 +111,17 @@ const COLUMNAS_IGNORADAS = new Set([
   'estado', 'telefono_celular', 'direccion',
 ])
 
+// El CSV de Intermobili tiene varias columnas "Código". numero_cliente
+// es la PRIMERA aparición (columna A). Las demás (e.g. la que está después
+// de Teléfono) son código de localidad y se ignoran.
+// Devuelve el header crudo (con prefijo __dupN__ si lo tiene) o null.
+function findNumeroClienteHeader(rawHeaders: string[]): string | null {
+  for (const h of rawHeaders) {
+    if (normalizar(h) === 'codigo') return h
+  }
+  return null
+}
+
 export interface ImportResult {
   rows: Partial<Client>[]
   skipped: number
@@ -157,11 +169,25 @@ export async function parsearCSV(file: File): Promise<ImportResult> {
 
           const visibleHeaders = rawHeaders
           const headersNorm = visibleHeaders.map(normalizar)
-          const mappings = visibleHeaders.map(h => `${h} → norm:"${normalizar(h)}" → campo:${COLUMN_MAP[normalizar(h)] ?? '(sin mapeo)'}`)
+          const numeroClienteHeader = findNumeroClienteHeader(rawHeaders)
+          const mappings = visibleHeaders.map(h => {
+            const norm = normalizar(h)
+            if (norm === 'codigo') {
+              const field = h === numeroClienteHeader
+                ? 'numero_cliente'
+                : '(ignorado: codigo_localidad u otro)'
+              return `${h} → norm:"${norm}" → campo:${field}`
+            }
+            return `${h} → norm:"${norm}" → campo:${COLUMN_MAP[norm] ?? '(sin mapeo)'}`
+          })
 
           // Clasificar cada header del CSV — normalizar quita prefijos __dupN__ automáticamente
           for (const h of rawHeaders) {
             const norm = normalizar(h)
+            if (norm === 'codigo') {
+              if (h === numeroClienteHeader) columnsFound.push(h)
+              continue
+            }
             if (COLUMN_MAP[norm]) {
               columnsFound.push(h)
             } else if (!COLUMNAS_IGNORADAS.has(norm)) {
@@ -169,13 +195,8 @@ export async function parsearCSV(file: File): Promise<ImportResult> {
             }
           }
 
-          console.log('[CSV debug] headers raw:', visibleHeaders)
-          console.log('[CSV debug] headers normalizados:', headersNorm)
-          console.log('[CSV debug] mappings:', mappings)
-
           const allRows = results.data as Record<string, string>[]
           const firstRaw = allRows[0] ?? {}
-          console.log('[CSV debug] primera fila raw:', firstRaw)
 
           const rows: Partial<Client>[] = []
           const vendedoresSet = new Set<string>()
@@ -196,6 +217,16 @@ export async function parsearCSV(file: File): Promise<ImportResult> {
 
             for (const [col, val] of Object.entries(raw)) {
               const norm = normalizar(col)
+
+              // numero_cliente se detecta por posición (segundo "Código",
+              // entre Teléfono y Localidad), no por el COLUMN_MAP.
+              if (norm === 'codigo') {
+                if (col === numeroClienteHeader) {
+                  mapped.numero_cliente = limpiarValor(val) || null
+                }
+                continue
+              }
+
               const field = COLUMN_MAP[norm]
               if (!field) continue
 
@@ -219,8 +250,6 @@ export async function parsearCSV(file: File): Promise<ImportResult> {
               firstRowSkipReason = tieneRazonSocial
                 ? '(fila válida)'
                 : `razon_social ausente o vacío. Keys de la fila: [${Object.keys(raw).join(', ')}]`
-              console.log('[CSV debug] primera fila mapeada:', mapped)
-              console.log('[CSV debug] tieneRazonSocial:', tieneRazonSocial)
             }
 
             if (!tieneRazonSocial) { skipped++; continue }

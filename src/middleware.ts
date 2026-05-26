@@ -23,12 +23,17 @@ export async function middleware(request: NextRequest) {
   )
 
   const { data: { user } } = await sb.auth.getUser()
+  const pathname = request.nextUrl.pathname
 
-  if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+  // Rutas públicas: login y el flow de recuperación de contraseña
+  // (el link de Supabase trae el token en el hash, sin cookie aún).
+  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/reset-password')
+
+  if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && request.nextUrl.pathname === '/login') {
+  if (user && pathname === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
