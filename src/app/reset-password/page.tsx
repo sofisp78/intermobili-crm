@@ -9,20 +9,33 @@ export default function ResetPasswordPage() {
   const [error, setError]         = useState('')
   const [success, setSuccess]     = useState(false)
   const [loading, setLoading]     = useState(false)
-  const [ready, setReady]         = useState(false)
+  const [status, setStatus]       = useState<'checking' | 'ready' | 'invalid'>('checking')
   const router = useRouter()
   const sb = createClient()
 
   useEffect(() => {
+    let settled = false
+    const marcarListo  = () => { if (!settled) { settled = true; setStatus('ready') } }
+    const marcarInvalido = () => { if (!settled) { settled = true; setStatus('invalid') } }
+
     // PASSWORD_RECOVERY se dispara cuando el usuario llega desde el link de Supabase
     const { data: { subscription } } = sb.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true)
+      if (event === 'PASSWORD_RECOVERY') marcarListo()
     })
-    // Si hay sesión activa (ej: recarga de página tras haber llegado por el link)
+
+    // Si hay sesión activa (ej: recarga tras haber llegado por el link)
     sb.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
+      if (session) marcarListo()
     })
-    return () => subscription.unsubscribe()
+
+    // Fallback: si no llegó ni el evento ni hay sesión, asumimos que entraron
+    // sin token válido (URL directa o link vencido) y mostramos el error.
+    const timer = setTimeout(marcarInvalido, 1500)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timer)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const guardar = async () => {
@@ -70,10 +83,29 @@ export default function ResetPasswordPage() {
     )
   }
 
-  if (!ready) {
+  if (status === 'checking') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-warm-50">
         <p className="text-sm text-gray-400">Verificando link de recuperación...</p>
+      </div>
+    )
+  }
+
+  if (status === 'invalid') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-warm-50">
+        <div className="bg-white rounded-2xl shadow-sm border border-warm-100 w-full max-w-sm p-8 text-center">
+          <h1 className="text-xl font-medium text-gray-900 mb-2">Link inválido</h1>
+          <p className="text-sm text-gray-500 mb-6">
+            Este link de recuperación no es válido o expiró. Pedí un nuevo mail de recuperación.
+          </p>
+          <button
+            onClick={() => router.push('/login')}
+            className="w-full bg-sage-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-sage-800 transition"
+          >
+            Volver al login
+          </button>
+        </div>
       </div>
     )
   }
