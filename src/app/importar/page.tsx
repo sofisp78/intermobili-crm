@@ -136,7 +136,7 @@ export default function ImportarPage() {
   if (!isAdmin) return null
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
+    <div className="max-w-2xl mx-auto px-4 py-6 sm:py-8">
       <h1 className="text-xl font-medium mb-2">Importar CSV</h1>
       <p className="text-sm text-gray-400 mb-6">
         Separador <code>;</code> · Encoding Windows-1252 · Valores <code>=&quot;texto&quot;</code> soportados

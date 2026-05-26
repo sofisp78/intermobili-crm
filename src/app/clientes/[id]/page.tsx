@@ -186,7 +186,7 @@ export default function ClientePage() {
     setFormEdit(f => ({ ...f, [key]: val }))
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8">
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
 
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs text-gray-400 mb-5">
@@ -465,7 +465,7 @@ export default function ClientePage() {
           </div>
         ) : (
           /* ── Modo lectura ── */
-          <div className="px-5 py-4 grid grid-cols-2 gap-x-8 gap-y-4">
+          <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {/* Responsable — editable inline */}
             <div className="col-span-2">
               <p className={labelCls}>Responsable</p>

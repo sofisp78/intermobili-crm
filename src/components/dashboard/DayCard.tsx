@@ -101,10 +101,64 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
     }
   }
 
+  const Botones = ({ className = '' }: { className?: string }) => (
+    <div className={className}>
+      {!c.vendedor_asignado && (
+        <>
+          <button
+            onClick={handleTakeLead}
+            disabled={takingLead}
+            className="text-sm px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition font-bold disabled:opacity-50"
+          >
+            {takingLead ? 'Tomando...' : 'Tomar lead'}
+          </button>
+          {takeError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              {takeError}
+            </p>
+          )}
+        </>
+      )}
+      {wa && (
+        <a
+          href={wa}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-center text-sm px-4 py-2 border border-green-200 text-green-700 bg-green-50 rounded-xl hover:bg-green-100 transition font-bold"
+        >
+          WhatsApp
+        </a>
+      )}
+      {tel && (
+        <a
+          href={tel}
+          className="text-center text-sm px-4 py-2 border border-gray-200 text-gray-700 bg-white rounded-xl hover:bg-gray-50 transition font-semibold"
+        >
+          Llamar
+        </a>
+      )}
+      <button
+        onClick={() => onUpdate(c)}
+        className="text-sm px-4 py-2 bg-sage-700 text-white rounded-xl hover:bg-sage-900 transition font-bold"
+      >
+        Registrar contacto
+      </button>
+      <button
+        onClick={() => setEditMode(true)}
+        className="text-sm px-4 py-2 border border-gray-200 bg-white text-gray-600 rounded-xl hover:bg-gray-50 transition"
+      >
+        Cambiar fecha
+      </button>
+      <Link href={`/clientes/${c.id}`} className="text-center text-xs text-gray-400 hover:text-sage-700 mt-1">
+        Ver ficha
+      </Link>
+    </div>
+  )
+
   return (
-    <div className={clsx('rounded-2xl border px-5 py-4 shadow-sm', cardTone[c.urgencia] ?? cardTone.sin_fecha)}>
-      <div className="grid grid-cols-[44px_1fr_auto] gap-4 items-start">
-        <div className="w-11 h-11 rounded-full bg-white border border-gray-200 flex items-center justify-center text-base font-bold text-gray-700">
+    <div className={clsx('rounded-2xl border px-4 sm:px-5 py-4 shadow-sm', cardTone[c.urgencia] ?? cardTone.sin_fecha)}>
+      <div className="grid grid-cols-[36px_1fr] sm:grid-cols-[44px_1fr] md:grid-cols-[44px_1fr_auto] gap-3 md:gap-4 items-start">
+        <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white border border-gray-200 flex items-center justify-center text-sm sm:text-base font-bold text-gray-700">
           {index}
         </div>
 
@@ -188,58 +242,12 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
           )}
         </div>
 
-        <div className="flex flex-col gap-2 min-w-[150px]">
-          {!c.vendedor_asignado && (
-            <>
-              <button
-                onClick={handleTakeLead}
-                disabled={takingLead}
-                className="text-sm px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition font-bold disabled:opacity-50"
-              >
-                {takingLead ? 'Tomando...' : 'Tomar lead'}
-              </button>
-              {takeError && (
-                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                  {takeError}
-                </p>
-              )}
-            </>
-          )}
-          {wa && (
-            <a
-              href={wa}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-center text-sm px-4 py-2 border border-green-200 text-green-700 bg-green-50 rounded-xl hover:bg-green-100 transition font-bold"
-            >
-              WhatsApp
-            </a>
-          )}
-          {tel && (
-            <a
-              href={tel}
-              className="text-center text-sm px-4 py-2 border border-gray-200 text-gray-700 bg-white rounded-xl hover:bg-gray-50 transition font-semibold"
-            >
-              Llamar
-            </a>
-          )}
-          <button
-            onClick={() => onUpdate(c)}
-            className="text-sm px-4 py-2 bg-sage-700 text-white rounded-xl hover:bg-sage-900 transition font-bold"
-          >
-            Registrar contacto
-          </button>
-          <button
-            onClick={() => setEditMode(true)}
-            className="text-sm px-4 py-2 border border-gray-200 bg-white text-gray-600 rounded-xl hover:bg-gray-50 transition"
-          >
-            Cambiar fecha
-          </button>
-          <Link href={`/clientes/${c.id}`} className="text-center text-xs text-gray-400 hover:text-sage-700 mt-1">
-            Ver ficha
-          </Link>
-        </div>
+        {/* Desktop: columna lateral de botones */}
+        <Botones className="hidden md:flex flex-col gap-2 min-w-[150px]" />
       </div>
+
+      {/* Mobile: botones debajo, ocupando todo el ancho con wrap */}
+      <Botones className="md:hidden mt-4 grid grid-cols-2 gap-2 [&>a]:w-full [&>button]:w-full [&>a:last-child]:col-span-2" />
     </div>
   )
 }

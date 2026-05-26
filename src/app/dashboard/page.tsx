@@ -230,8 +230,8 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
-      <div className="mb-7 flex items-start justify-between gap-4">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="mb-7 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
             {format(new Date(), "EEEE d 'de' MMMM", { locale: es })}
@@ -311,7 +311,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Counter label="Total en cartera" value={totalVisibles} tone="gray" />
         <Counter label="Para hoy" value={hoy.length} tone="amber" />
         <Counter label="Atrasados" value={vencidos.length} tone={vencidos.length > 0 ? 'red' : 'gray'} />

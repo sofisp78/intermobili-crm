@@ -30,7 +30,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // El sidebar aparece cuando el perfil carga, pero <main> nunca cambia
   // → children nunca se desmontan → no se resetea el estado del dashboard.
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen overflow-hidden">
       {profile && (
         <Sidebar isAdmin={profile.role === 'admin'} nombre={profile.nombre} />
       )}

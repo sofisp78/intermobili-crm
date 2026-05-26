@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import clsx from 'clsx'
 
@@ -44,6 +45,22 @@ function IconPlus() {
   )
 }
 
+function IconMenu() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+    </svg>
+  )
+}
+
+function IconClose() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  )
+}
+
 const links = [
   { href: '/dashboard', label: 'Mi día',         icon: IconCalendar },
   { href: '/clientes',  label: 'Leads',           icon: IconUsers },
@@ -57,6 +74,10 @@ export default function Sidebar({ isAdmin, nombre }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const sb = createClient()
+  const [open, setOpen] = useState(false)
+
+  // Cerrar el drawer al cambiar de ruta
+  useEffect(() => { setOpen(false) }, [pathname])
 
   const logout = async () => {
     await sb.auth.signOut()
@@ -66,9 +87,8 @@ export default function Sidebar({ isAdmin, nombre }: Props) {
   const isActive = (href: string) =>
     pathname === href || (href !== '/dashboard' && pathname.startsWith(href + '/'))
 
-  return (
-    <aside className="w-56 min-w-56 bg-white border-r border-gray-100 flex flex-col">
-
+  const NavContent = ({ onNavigate }: { onNavigate?: () => void }) => (
+    <>
       {/* Logo */}
       <div className="px-5 py-5 border-b border-gray-100">
         <p className="text-sm font-semibold text-gray-900 tracking-tight">Intermobili</p>
@@ -76,13 +96,14 @@ export default function Sidebar({ isAdmin, nombre }: Props) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-2">
+      <nav className="flex-1 py-2 overflow-y-auto">
         {links
           .filter(l => !l.adminOnly || isAdmin)
           .map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
+              onClick={onNavigate}
               className={clsx(
                 'flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all',
                 isActive(href)
@@ -100,6 +121,7 @@ export default function Sidebar({ isAdmin, nombre }: Props) {
       <div className="px-3 pb-3">
         <Link
           href="/clientes/nuevo"
+          onClick={onNavigate}
           className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs font-medium text-sage-700 bg-sage-50 hover:bg-sage-100 rounded-lg transition border border-sage-100"
         >
           <IconPlus />
@@ -122,6 +144,51 @@ export default function Sidebar({ isAdmin, nombre }: Props) {
           Cerrar sesión
         </button>
       </div>
-    </aside>
+    </>
+  )
+
+  return (
+    <>
+      {/* Sidebar fijo — solo desktop (md+) */}
+      <aside className="hidden md:flex w-56 min-w-56 bg-white border-r border-gray-100 flex-col">
+        <NavContent />
+      </aside>
+
+      {/* Topbar mobile — solo < md */}
+      <header className="md:hidden flex items-center justify-between bg-white border-b border-gray-100 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 tracking-tight">Intermobili</p>
+          <p className="text-xs text-gray-400">CRM Comercial</p>
+        </div>
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="Abrir menú"
+          className="p-2 -mr-2 rounded-lg text-gray-600 hover:bg-gray-50 transition"
+        >
+          <IconMenu />
+        </button>
+      </header>
+
+      {/* Drawer mobile */}
+      {open && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <aside className="absolute left-0 top-0 bottom-0 w-64 bg-white border-r border-gray-100 flex flex-col shadow-xl">
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Cerrar menú"
+              className="absolute top-3 right-3 z-10 p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition"
+            >
+              <IconClose />
+            </button>
+            <NavContent onNavigate={() => setOpen(false)} />
+          </aside>
+        </div>
+      )}
+    </>
   )
 }
