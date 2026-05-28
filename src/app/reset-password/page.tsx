@@ -15,21 +15,29 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let settled = false
-    const marcarListo  = () => { if (!settled) { settled = true; setStatus('ready') } }
+    const marcarListo    = () => { if (!settled) { settled = true; setStatus('ready') } }
     const marcarInvalido = () => { if (!settled) { settled = true; setStatus('invalid') } }
 
-    // PASSWORD_RECOVERY se dispara cuando el usuario llega desde el link de Supabase
+    const code = new URLSearchParams(window.location.search).get('code')
+
+    if (code) {
+      // Flujo PKCE: el mail llega con ?code=... y hay que canjearlo por sesión
+      sb.auth.exchangeCodeForSession(code).then(({ error: e }) => {
+        if (e) marcarInvalido()
+        else marcarListo()
+      })
+      return
+    }
+
+    // Flujo legacy (link con token en hash): PASSWORD_RECOVERY event
     const { data: { subscription } } = sb.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') marcarListo()
     })
 
-    // Si hay sesión activa (ej: recarga tras haber llegado por el link)
     sb.auth.getSession().then(({ data: { session } }) => {
       if (session) marcarListo()
     })
 
-    // Fallback: si no llegó ni el evento ni hay sesión, asumimos que entraron
-    // sin token válido (URL directa o link vencido) y mostramos el error.
     const timer = setTimeout(marcarInvalido, 1500)
 
     return () => {
