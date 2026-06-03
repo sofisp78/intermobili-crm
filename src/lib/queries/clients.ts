@@ -36,6 +36,7 @@ const COLS_DETALLE = [
   'origen', 'ultimo_contacto', 'resumen', 'fecha_proxima_accion', 'lista_tipo',
   'fecha_alta_sistema', 'fecha_ultima_compra', 'numero_cliente',
   'profiles!vendedor_asignado(nombre, vendedor_nombre)',
+  'client_etiquetas(etiquetas(id, nombre, color, activa))',
 ].join(', ')
 
 // Columnas para el dashboard admin (métricas agregadas, sin datos de contacto)
@@ -173,9 +174,11 @@ export async function fetchCliente(id: string) {
     .eq('id', id)
     .single()
   if (error) throw error
+  const raw = data as any
   return {
-    ...(data as any),
-    vendedor_nombre: mapVendedorNombre(data),
+    ...raw,
+    vendedor_nombre: mapVendedorNombre(raw),
+    etiquetas: (raw.client_etiquetas ?? []).map((ce: any) => ce.etiquetas).filter(Boolean),
   } as Client
 }
 

@@ -1,4 +1,14 @@
 export type Role = 'admin' | 'vendedor'
+
+export interface Etiqueta {
+  id: string
+  nombre: string
+  color: string
+  activa: boolean
+  created_at: string
+  updated_at: string
+}
+
 export type CategoriaCliente = 'lead_nuevo' | 'cliente_activo' | 'cliente_a_reactivar' | 'cerrado_no_avanzar'
 export type TipoCliente = 'distribuidor' | 'arquitecto_desarrollador' | 'hotel' | 'otro'
 export type Potencial = 'alto' | 'medio' | 'bajo'
@@ -44,6 +54,7 @@ export interface Client {
   vendedor_original: string | null
   lista_tipo: ListaTipo | null
   numero_cliente: string | null
+  etiquetas?: Etiqueta[]
   created_at: string
   updated_at: string
 }

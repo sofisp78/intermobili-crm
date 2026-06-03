@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { fetchClientesAdmin, fetchUpdatesAdmin, fetchVendedores } from '@/lib/queries/clients'
 import { useRequireAdmin } from '@/lib/auth/useRequireAdmin'
 import { LISTA_TIPO_OPTIONS } from '@/lib/labels'
+import EtiquetasAdmin from '@/components/admin/EtiquetasAdmin'
 import { subDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import clsx from 'clsx'
@@ -436,6 +437,18 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Gestión de etiquetas */}
+      <div className="border-t border-gray-100 pt-8">
+        <div className="mb-5">
+          <h2 className="text-xl font-bold text-gray-900">Etiquetas</h2>
+          <p className="text-sm text-gray-400 mt-0.5">
+            Administrá las etiquetas disponibles para asignar a clientes.
+          </p>
+        </div>
+        <EtiquetasAdmin />
+      </div>
+
     </div>
   )
 }
