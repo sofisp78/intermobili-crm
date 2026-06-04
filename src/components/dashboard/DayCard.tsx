@@ -51,6 +51,7 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
   const [prioridadEdit, setPrioridadEdit] = useState<Prioridad>(c.prioridad ?? 'media')
   const [fechaEdit, setFechaEdit] = useState(c.fecha_proxima_accion ?? '')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [takingLead, setTakingLead] = useState(false)
   const [takeError, setTakeError] = useState<string | null>(null)
 
@@ -80,10 +81,13 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
 
   const quickSave = async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       await actualizarCampoRapido(c.id, prioridadEdit, fechaEdit)
       setEditMode(false)
       onRefresh()
+    } catch (e: any) {
+      setSaveError(e?.message ?? 'No se pudo actualizar el cliente.')
     } finally {
       setSaving(false)
     }
@@ -144,7 +148,7 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
         Registrar contacto
       </button>
       <button
-        onClick={() => setEditMode(true)}
+        onClick={() => { setSaveError(null); setEditMode(true) }}
         className="text-sm px-4 py-2 border border-gray-200 bg-white text-gray-600 rounded-xl hover:bg-gray-50 transition"
       >
         Cambiar fecha
@@ -235,9 +239,14 @@ export default function DayCard({ client: c, index, onUpdate, onRefresh, onTakeL
               >
                 {saving ? 'Guardando...' : 'Guardar'}
               </button>
-              <button onClick={() => setEditMode(false)} className="text-sm text-gray-500 px-3 py-2 hover:text-gray-700">
+              <button onClick={() => { setEditMode(false); setSaveError(null) }} className="text-sm text-gray-500 px-3 py-2 hover:text-gray-700">
                 Cancelar
               </button>
+              {saveError && (
+                <p className="w-full text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  {saveError}
+                </p>
+              )}
             </div>
           )}
         </div>

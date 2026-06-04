@@ -78,11 +78,13 @@ export default function ClientePage() {
   const [editResponsable, setEditResponsable] = useState(false)
   const [nuevoResponsable, setNuevoResponsable] = useState<string>('')
   const [guardandoResp, setGuardandoResp] = useState(false)
+  const [errorResp, setErrorResp] = useState<string | null>(null)
 
   // Edición lista
   const [editLista, setEditLista] = useState(false)
   const [nuevoLista, setNuevoLista] = useState<string>('')
   const [guardandoLista, setGuardandoLista] = useState(false)
+  const [errorLista, setErrorLista] = useState<string | null>(null)
 
   // Edición datos del cliente
   const [editando, setEditando] = useState(false)
@@ -125,10 +127,13 @@ export default function ClientePage() {
 
   const guardarResponsable = async () => {
     setGuardandoResp(true)
+    setErrorResp(null)
     try {
       await actualizarVendedor(client.id, nuevoResponsable || null)
       setEditResponsable(false)
       cargar()
+    } catch (e: any) {
+      setErrorResp(e?.message ?? 'No se pudo actualizar el responsable.')
     } finally {
       setGuardandoResp(false)
     }
@@ -136,12 +141,22 @@ export default function ClientePage() {
 
   const guardarLista = async () => {
     setGuardandoLista(true)
+    setErrorLista(null)
     try {
       const { createClient: createSb } = await import('@/lib/supabase/client')
       const sb2 = createSb()
-      await sb2.from('clients').update({ lista_tipo: nuevoLista || null }).eq('id', client.id)
+      const { data, error } = await sb2
+        .from('clients')
+        .update({ lista_tipo: nuevoLista || null })
+        .eq('id', client.id)
+        .select('id, lista_tipo')
+        .maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error('No se pudo actualizar la lista. Revisá permisos o sesión.')
       setEditLista(false)
       cargar()
+    } catch (e: any) {
+      setErrorLista(e?.message ?? 'No se pudo actualizar la lista.')
     } finally {
       setGuardandoLista(false)
     }
@@ -171,8 +186,14 @@ export default function ClientePage() {
       }
       if (profile?.id) payload.ultima_actualizacion_por = profile.id
 
-      const { error } = await sb.from('clients').update(payload).eq('id', client.id)
+      const { data, error } = await sb
+        .from('clients')
+        .update(payload)
+        .eq('id', client.id)
+        .select('id')
+        .maybeSingle()
       if (error) throw error
+      if (!data) throw new Error('No se pudo actualizar el cliente. Revisá permisos o sesión.')
       setEditando(false)
       cargar()
     } catch (e: any) {
@@ -210,24 +231,27 @@ export default function ClientePage() {
               </span>
             )}
             {editLista ? (
-              <div className="flex items-center gap-2">
-                <select
-                  value={nuevoLista}
-                  onChange={e => setNuevoLista(e.target.value)}
-                  autoFocus
-                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
-                >
-                  <option value="">Sin definir</option>
-                  {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <button onClick={guardarLista} disabled={guardandoLista} className="text-xs bg-sage-600 text-white px-3 py-1 rounded-lg hover:bg-sage-800 transition disabled:opacity-50">
-                  {guardandoLista ? '...' : 'Guardar'}
-                </button>
-                <button onClick={() => setEditLista(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+              <div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={nuevoLista}
+                    onChange={e => setNuevoLista(e.target.value)}
+                    autoFocus
+                    className="text-xs border border-gray-200 rounded-lg px-2.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
+                  >
+                    <option value="">Sin definir</option>
+                    {LISTA_TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <button onClick={guardarLista} disabled={guardandoLista} className="text-xs bg-sage-600 text-white px-3 py-1 rounded-lg hover:bg-sage-800 transition disabled:opacity-50">
+                    {guardandoLista ? '...' : 'Guardar'}
+                  </button>
+                  <button onClick={() => { setEditLista(false); setErrorLista(null) }} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                </div>
+                {errorLista && <p className="text-xs text-red-600 mt-1">{errorLista}</p>}
               </div>
             ) : (
               <button
-                onClick={() => setEditLista(true)}
+                onClick={() => { setErrorLista(null); setEditLista(true) }}
                 className={clsx(
                   'flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full border transition hover:opacity-80',
                   client.lista_tipo === 'lista_1' ? 'bg-purple-50 text-purple-700 border-purple-200' :
@@ -470,28 +494,34 @@ export default function ClientePage() {
             <div className="col-span-2">
               <p className={labelCls}>Responsable</p>
               {editResponsable ? (
-                <div className="flex items-center gap-2">
-                  <select
-                    value={nuevoResponsable}
-                    onChange={e => setNuevoResponsable(e.target.value)}
-                    className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
-                  >
-                    <option value="">Sin asignar</option>
-                    {vendedores.map(v => (
-                      <option key={v.id} value={v.id}>{v.nombre}</option>
-                    ))}
-                  </select>
-                  <button onClick={guardarResponsable} disabled={guardandoResp} className="text-xs bg-sage-600 text-white px-3 py-1.5 rounded-lg hover:bg-sage-800 transition disabled:opacity-50">
-                    {guardandoResp ? '...' : 'Guardar'}
-                  </button>
-                  <button onClick={() => setEditResponsable(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={nuevoResponsable}
+                      onChange={e => setNuevoResponsable(e.target.value)}
+                      className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400"
+                    >
+                      <option value="">Sin asignar</option>
+                      {vendedores.map(v => (
+                        <option key={v.id} value={v.id}>{v.nombre}</option>
+                      ))}
+                    </select>
+                    <button onClick={guardarResponsable} disabled={guardandoResp} className="text-xs bg-sage-600 text-white px-3 py-1.5 rounded-lg hover:bg-sage-800 transition disabled:opacity-50">
+                      {guardandoResp ? '...' : 'Guardar'}
+                    </button>
+                    <button onClick={() => { setEditResponsable(false); setErrorResp(null) }} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                  </div>
+                  {errorResp && <p className="text-xs text-red-600 mt-1">{errorResp}</p>}
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-800">
-                    {client.vendedor_nombre ?? <span className="text-amber-600 font-medium">Sin asignar</span>}
-                  </span>
-                  <button onClick={() => setEditResponsable(true)} className="text-xs text-gray-400 hover:text-sage-600 transition">Cambiar</button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-800">
+                      {client.vendedor_nombre ?? <span className="text-amber-600 font-medium">Sin asignar</span>}
+                    </span>
+                    <button onClick={() => { setErrorResp(null); setEditResponsable(true) }} className="text-xs text-gray-400 hover:text-sage-600 transition">Cambiar</button>
+                  </div>
+                  {errorResp && <p className="text-xs text-red-600 mt-1">{errorResp}</p>}
                 </div>
               )}
             </div>

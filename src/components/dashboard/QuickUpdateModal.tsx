@@ -61,10 +61,14 @@ export default function QuickUpdateModal({ client, userId, userName, onClose, on
   const hoy = isoDate(new Date())
 
   const [opcionesResultado, setOpcionesResultado] = useState<string[]>(RESULTADOS_FALLBACK)
+  const [opcionesAviso, setOpcionesAviso] = useState('')
   useEffect(() => {
     fetchResultadoOpciones(true)
       .then(ops => setOpcionesResultado(ops.map(o => o.nombre)))
-      .catch(() => {}) // mantiene fallback en caso de error
+      .catch((e: any) => {
+        console.warn('No se pudieron cargar opciones de contacto desde Supabase:', e)
+        setOpcionesAviso('No se pudieron cargar las opciones administrables. Se muestran opciones predeterminadas.')
+      })
   }, [])
 
   const [resultado, setResultado] = useState('')
@@ -135,6 +139,7 @@ export default function QuickUpdateModal({ client, userId, userName, onClose, on
 
         <div className="px-5 py-5 space-y-5">
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          {opcionesAviso && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">{opcionesAviso}</p>}
 
           {/* Resultado */}
           <div>

@@ -64,6 +64,8 @@ export default function ResultadoOpcionesAdmin() {
       await actualizarOpcionResultado(id, { nombre })
       setEditandoId(null)
       await cargar()
+    } catch (e: any) {
+      setErrorEdit(e?.message ?? 'Error al guardar.')
     } finally {
       setGuardandoId(null)
     }
@@ -75,9 +77,12 @@ export default function ResultadoOpcionesAdmin() {
       : `¿Reactivar "${op.nombre}"?`
     if (!confirm(msg)) return
     setGuardandoId(op.id)
+    setErrorEdit(null)
     try {
       await actualizarOpcionResultado(op.id, { activa: !op.activa })
       await cargar()
+    } catch (e: any) {
+      setErrorEdit(e?.message ?? 'Error al actualizar.')
     } finally {
       setGuardandoId(null)
     }
@@ -90,6 +95,7 @@ export default function ResultadoOpcionesAdmin() {
     const swap = dir === 'arriba' ? idx - 1 : idx + 1
     if (swap < 0 || swap >= activas.length) return
     setGuardandoId(id)
+    setErrorEdit(null)
     try {
       const a = activas[idx]
       const b = activas[swap]
@@ -98,6 +104,8 @@ export default function ResultadoOpcionesAdmin() {
         actualizarOpcionResultado(b.id, { orden: a.orden }),
       ])
       await cargar()
+    } catch (e: any) {
+      setErrorEdit(e?.message ?? 'Error al reordenar.')
     } finally {
       setGuardandoId(null)
     }
@@ -141,6 +149,11 @@ export default function ResultadoOpcionesAdmin() {
         <p className="text-sm text-gray-400 text-center py-6">No hay opciones todavía.</p>
       ) : (
         <div className="space-y-3">
+          {errorEdit && editandoId === null && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              {errorEdit}
+            </p>
+          )}
 
           {/* Activas */}
           {activas.length > 0 && (

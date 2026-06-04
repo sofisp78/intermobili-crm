@@ -26,9 +26,13 @@ export async function actualizarOpcionResultado(
   campos: Partial<Pick<OpcionResultado, 'nombre' | 'activa' | 'orden'>>
 ) {
   const sb = createClient()
-  const { error } = await sb
+  const { data, error } = await sb
     .from('opciones_resultado')
     .update(campos)
     .eq('id', id)
+    .select()
+    .maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('No se pudo actualizar la opción. Revisá permisos de admin o sesión.')
+  return data as OpcionResultado
 }

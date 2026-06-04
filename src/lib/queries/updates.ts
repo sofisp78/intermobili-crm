@@ -7,12 +7,18 @@ export async function actualizarCampoRapido(
   fechaProximaAccion: string | null
 ) {
   const sb = createClient()
-  const { error } = await sb.from('clients').update({
-    prioridad: prioridad || null,
-    fecha_proxima_accion: fechaProximaAccion || null,
-    ultima_actualizacion_at: new Date().toISOString(),
-  }).eq('id', clientId)
+  const { data, error } = await sb
+    .from('clients')
+    .update({
+      prioridad: prioridad || null,
+      fecha_proxima_accion: fechaProximaAccion || null,
+      ultima_actualizacion_at: new Date().toISOString(),
+    })
+    .eq('id', clientId)
+    .select('id')
+    .maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('No se pudo actualizar el cliente. Revisá permisos o sesión.')
 }
 
 // Solo columnas renderizadas en el historial; excluye campos de auditoría interna
@@ -108,6 +114,12 @@ export async function guardarActualizacion(params: {
   if (params.canal)            updateData.ultimo_canal = params.canal
   if (params.resultado)        updateData.ultimo_resultado = params.resultado
 
-  const { error: e2 } = await sb.from('clients').update(updateData).eq('id', params.clientId)
+  const { data, error: e2 } = await sb
+    .from('clients')
+    .update(updateData)
+    .eq('id', params.clientId)
+    .select('id')
+    .maybeSingle()
   if (e2) throw e2
+  if (!data) throw new Error('No se pudo actualizar el cliente. Revisá permisos o sesión.')
 }

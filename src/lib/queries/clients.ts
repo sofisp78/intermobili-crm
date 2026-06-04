@@ -51,6 +51,13 @@ function mapVendedorNombre(row: any): string | null {
   return p?.vendedor_nombre ?? p?.nombre ?? null
 }
 
+function sanitizeSearchTerm(value: string) {
+  return value
+    .trim()
+    .replace(/[,%()]/g, ' ')
+    .replace(/\s+/g, ' ')
+}
+
 export async function fetchVendedores() {
   const sb = createClient()
   const { data, error } = await sb
@@ -149,7 +156,7 @@ export async function fetchClientes(filtros: {
   if (filtros.provincia)  query = query.ilike('provincia', `%${filtros.provincia}%`)
   if (filtros.listaTipo)  query = query.eq('lista_tipo', filtros.listaTipo)
 
-  const search = filtros.search?.trim().replace(/,/g, ' ')
+  const search = filtros.search ? sanitizeSearchTerm(filtros.search) : ''
   if (search) {
     query = query.or([
       `razon_social.ilike.%${search}%`,
@@ -192,8 +199,9 @@ export async function actualizarVendedor(clientId: string, vendedorId: string | 
     .update({ vendedor_asignado: vendedorId || null })
     .eq('id', clientId)
     .select('id, vendedor_asignado')
-    .single()
+    .maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('No se pudo actualizar el responsable. Revisá permisos o sesión.')
   return data
 }
 
