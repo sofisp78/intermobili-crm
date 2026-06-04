@@ -56,6 +56,7 @@ export default function ClientesPage() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [mostrarArchivados, setMostrarArchivados] = useState(false)
   const [filtros, setFiltros] = useState({
     categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '',
   })
@@ -94,16 +95,16 @@ export default function ClientesPage() {
     if (!profile) return
     let cancelled = false
     setLoading(true)
-    fetchClientes({ search: debouncedSearch, ...filtros, listaTipo: filtros.listaTipo || undefined })
+    fetchClientes({ search: debouncedSearch, ...filtros, listaTipo: filtros.listaTipo || undefined, incluirArchivados: mostrarArchivados })
       .then(data => { if (!cancelled) setClientes(data) })
       .catch((e: any) => { if (!cancelled) setError(e?.message ?? JSON.stringify(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [debouncedSearch, filtros, profile])
+  }, [debouncedSearch, filtros, profile, mostrarArchivados])
 
   const filtrar = (key: string, val: string) => setFiltros(f => ({ ...f, [key]: val }))
-  const hayFiltros = search !== '' || Object.values(filtros).some(v => v !== '')
-  const limpiar = () => { setSearch(''); setFiltros({ categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '' }) }
+  const hayFiltros = search !== '' || Object.values(filtros).some(v => v !== '') || mostrarArchivados
+  const limpiar = () => { setSearch(''); setMostrarArchivados(false); setFiltros({ categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '' }) }
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -188,6 +189,18 @@ export default function ClientesPage() {
             {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
           </select>
         )}
+
+        <button
+          onClick={() => setMostrarArchivados(v => !v)}
+          className={clsx(
+            'text-xs px-3 py-1.5 rounded-lg border transition',
+            mostrarArchivados
+              ? 'bg-gray-800 text-white border-gray-800'
+              : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700'
+          )}
+        >
+          {mostrarArchivados ? 'Ocultar archivados' : 'Ver archivados'}
+        </button>
 
         {hayFiltros && (
           <button

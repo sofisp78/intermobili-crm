@@ -36,7 +36,6 @@ const COLS_DETALLE = [
   'origen', 'ultimo_contacto', 'resumen', 'fecha_proxima_accion', 'lista_tipo',
   'fecha_alta_sistema', 'fecha_ultima_compra', 'numero_cliente',
   'profiles!vendedor_asignado(nombre, vendedor_nombre)',
-  'client_etiquetas(etiquetas(id, nombre, color, activa))',
 ].join(', ')
 
 // Columnas para el dashboard admin (métricas agregadas, sin datos de contacto)
@@ -123,12 +122,18 @@ export async function fetchClientes(filtros: {
   provincia?: string
   listaTipo?: string
   search?: string
+  incluirArchivados?: boolean
 }) {
   const sb = createClient()
   let query = sb
     .from('clients')
     .select(COLS_LISTA)
     .order('razon_social')
+
+  // Por defecto excluir cerrado_no_avanzar salvo filtro explícito de categoría o toggle archivados
+  if (!filtros.incluirArchivados && !filtros.categoria) {
+    query = query.neq('categoria_cliente', 'cerrado_no_avanzar')
+  }
 
   if (filtros.vendedor === 'sin_asignar') {
     query = query.is('vendedor_asignado', null)
@@ -174,11 +179,9 @@ export async function fetchCliente(id: string) {
     .eq('id', id)
     .single()
   if (error) throw error
-  const raw = data as any
   return {
-    ...raw,
-    vendedor_nombre: mapVendedorNombre(raw),
-    etiquetas: (raw.client_etiquetas ?? []).map((ce: any) => ce.etiquetas).filter(Boolean),
+    ...(data as any),
+    vendedor_nombre: mapVendedorNombre(data),
   } as Client
 }
 

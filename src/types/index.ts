@@ -1,12 +1,11 @@
 export type Role = 'admin' | 'vendedor'
 
-export interface Etiqueta {
+export interface OpcionResultado {
   id: string
   nombre: string
-  color: string
   activa: boolean
+  orden: number
   created_at: string
-  updated_at: string
 }
 
 export type CategoriaCliente = 'lead_nuevo' | 'cliente_activo' | 'cliente_a_reactivar' | 'cerrado_no_avanzar'
@@ -54,7 +53,6 @@ export interface Client {
   vendedor_original: string | null
   lista_tipo: ListaTipo | null
   numero_cliente: string | null
-  etiquetas?: Etiqueta[]
   created_at: string
   updated_at: string
 }

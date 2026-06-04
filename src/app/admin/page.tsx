@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { fetchClientesAdmin, fetchUpdatesAdmin, fetchVendedores } from '@/lib/queries/clients'
 import { useRequireAdmin } from '@/lib/auth/useRequireAdmin'
 import { LISTA_TIPO_OPTIONS } from '@/lib/labels'
-import EtiquetasAdmin from '@/components/admin/EtiquetasAdmin'
+import ResultadoOpcionesAdmin from '@/components/admin/ResultadoOpcionesAdmin'
 import { subDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import clsx from 'clsx'
@@ -438,15 +438,15 @@ export default function AdminPage() {
         )}
       </div>
 
-      {/* Gestión de etiquetas */}
+      {/* Opciones de resultado de contacto */}
       <div className="border-t border-gray-100 pt-8">
         <div className="mb-5">
-          <h2 className="text-xl font-bold text-gray-900">Etiquetas</h2>
+          <h2 className="text-xl font-bold text-gray-900">Opciones de contacto</h2>
           <p className="text-sm text-gray-400 mt-0.5">
-            Administrá las etiquetas disponibles para asignar a clientes.
+            Administrá las opciones de &ldquo;¿Cómo resultó?&rdquo; del modal de registro de contacto.
           </p>
         </div>
-        <EtiquetasAdmin />
+        <ResultadoOpcionesAdmin />
       </div>
 
     </div>

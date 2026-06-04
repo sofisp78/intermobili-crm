@@ -5,9 +5,8 @@ import { fetchCliente, fetchVendedores, actualizarVendedor } from '@/lib/queries
 import { LISTA_TIPO_OPTIONS, TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
 import { fetchHistorial } from '@/lib/queries/updates'
 import { createClient } from '@/lib/supabase/client'
-import type { Client, ClientUpdate, Etiqueta, Profile } from '@/types'
+import type { Client, ClientUpdate, Profile } from '@/types'
 import { CategoriaBadge, EstadoBadge, PotencialDot, PrioridadBadge } from '@/components/ui/Badge'
-import { fetchEtiquetas, asignarEtiqueta, quitarEtiqueta } from '@/lib/queries/etiquetas'
 import QuickUpdateModal from '@/components/dashboard/QuickUpdateModal'
 import { format, parseISO, isPast, isToday, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -75,10 +74,6 @@ export default function ClientePage() {
   const [vendedores, setVendedores] = useState<{ id: string; nombre: string }[]>([])
   const [showModal, setShowModal] = useState(false)
 
-  const [etiquetasActivas, setEtiquetasActivas] = useState<Etiqueta[]>([])
-  const [showEtiquetaDropdown, setShowEtiquetaDropdown] = useState(false)
-  const [guardandoEtiqueta, setGuardandoEtiqueta] = useState(false)
-
   // Edición responsable
   const [editResponsable, setEditResponsable] = useState(false)
   const [nuevoResponsable, setNuevoResponsable] = useState<string>('')
@@ -100,18 +95,16 @@ export default function ClientePage() {
   const cargar = async () => {
     const { data: { user } } = await sb.auth.getUser()
     if (!user) return
-    const [c, h, { data: p }, vds, ets] = await Promise.all([
+    const [c, h, { data: p }, vds] = await Promise.all([
       fetchCliente(id),
       fetchHistorial(id),
       sb.from('profiles').select('id, nombre, email, role, vendedor_nombre, created_at').eq('id', user.id).single(),
       fetchVendedores(),
-      fetchEtiquetas(true),
     ])
     setClient(c)
     setHistorial(h)
     setProfile(p)
     setVendedores(vds)
-    setEtiquetasActivas(ets)
     setNuevoResponsable(c.vendedor_asignado ?? '')
     setNuevoLista(c.lista_tipo ?? '')
     setFormEdit(clientToForm(c))
@@ -191,27 +184,6 @@ export default function ClientePage() {
 
   const setField = (key: keyof FormEdit, val: string) =>
     setFormEdit(f => ({ ...f, [key]: val }))
-
-  const agregarEtiquetaCliente = async (etiquetaId: string) => {
-    setGuardandoEtiqueta(true)
-    setShowEtiquetaDropdown(false)
-    try {
-      await asignarEtiqueta(client.id, etiquetaId)
-      await cargar()
-    } finally {
-      setGuardandoEtiqueta(false)
-    }
-  }
-
-  const quitarEtiquetaCliente = async (etiquetaId: string) => {
-    setGuardandoEtiqueta(true)
-    try {
-      await quitarEtiqueta(client.id, etiquetaId)
-      await cargar()
-    } finally {
-      setGuardandoEtiqueta(false)
-    }
-  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -398,88 +370,6 @@ export default function ClientePage() {
           <p className="text-sm text-gray-800 leading-relaxed">{client.resumen}</p>
         </div>
       )}
-
-      {/* Etiquetas */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-5">
-        <div className="px-5 py-3.5 border-b border-gray-50">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Etiquetas</p>
-        </div>
-        <div className="px-5 py-3.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            {(client.etiquetas ?? []).map(et => (
-              <span
-                key={et.id}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor: et.color + '20',
-                  color: et.color,
-                  border: `1px solid ${et.color}40`,
-                }}
-              >
-                {et.nombre}
-                <button
-                  onClick={() => quitarEtiquetaCliente(et.id)}
-                  disabled={guardandoEtiqueta}
-                  className="ml-0.5 hover:opacity-60 transition disabled:opacity-30"
-                  title={`Quitar etiqueta "${et.nombre}"`}
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </span>
-            ))}
-
-            {/* Dropdown para agregar */}
-            <div className="relative">
-              <button
-                onClick={() => setShowEtiquetaDropdown(v => !v)}
-                disabled={guardandoEtiqueta}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-sage-600 border border-dashed border-gray-200 hover:border-sage-400 rounded-full px-2.5 py-0.5 transition disabled:opacity-40"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Agregar
-              </button>
-
-              {showEtiquetaDropdown && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowEtiquetaDropdown(false)}
-                  />
-                  <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[160px]">
-                    {etiquetasActivas.filter(e => !(client.etiquetas ?? []).some(ce => ce.id === e.id)).length === 0 ? (
-                      <p className="text-xs text-gray-400 px-3 py-2.5">No hay más etiquetas disponibles</p>
-                    ) : (
-                      etiquetasActivas
-                        .filter(e => !(client.etiquetas ?? []).some(ce => ce.id === e.id))
-                        .map(et => (
-                          <button
-                            key={et.id}
-                            onClick={() => agregarEtiquetaCliente(et.id)}
-                            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 transition"
-                          >
-                            <span
-                              className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: et.color }}
-                            />
-                            <span className="text-sm text-gray-700">{et.nombre}</span>
-                          </button>
-                        ))
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {(client.etiquetas ?? []).length === 0 && !showEtiquetaDropdown && (
-              <span className="text-xs text-gray-300">Sin etiquetas asignadas</span>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Datos del cliente */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">

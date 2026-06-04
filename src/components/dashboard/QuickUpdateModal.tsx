@@ -1,13 +1,15 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CategoriaCliente, Client, Estado, Prioridad } from '@/types'
 import { guardarActualizacion } from '@/lib/queries/updates'
+import { fetchResultadoOpciones } from '@/lib/queries/resultado_opciones'
 import clsx from 'clsx'
 import { addDays } from 'date-fns'
 
-const RESULTADOS = [
+// Fallback por si falla la carga desde DB
+const RESULTADOS_FALLBACK = [
   'Respondió', 'No respondió', 'Pidió información', 'Pidió presupuesto',
-  'Queda en seguimiento', 'No le interesa', 'Llamar más adelante', 'Reactivar',
+  'Queda en seguimiento', 'No le interesa', 'Llamar más adelante', 'Reactivar', 'Hizo pedido',
 ]
 
 const CANALES = ['Llamada', 'WhatsApp', 'Mail', 'Presencial', 'Instagram', 'Otro']
@@ -57,6 +59,13 @@ interface Props {
 
 export default function QuickUpdateModal({ client, userId, userName, onClose, onSaved }: Props) {
   const hoy = isoDate(new Date())
+
+  const [opcionesResultado, setOpcionesResultado] = useState<string[]>(RESULTADOS_FALLBACK)
+  useEffect(() => {
+    fetchResultadoOpciones(true)
+      .then(ops => setOpcionesResultado(ops.map(o => o.nombre)))
+      .catch(() => {}) // mantiene fallback en caso de error
+  }, [])
 
   const [resultado, setResultado] = useState('')
   const [canal, setCanal] = useState('')
@@ -130,7 +139,7 @@ export default function QuickUpdateModal({ client, userId, userName, onClose, on
           {/* Resultado */}
           <div>
             <label className={labelCls}>¿Cómo resultó?</label>
-            <ChipGroup options={RESULTADOS} value={resultado} onChange={setResultado} />
+            <ChipGroup options={opcionesResultado} value={resultado} onChange={setResultado} />
           </div>
 
           {/* Canal */}
