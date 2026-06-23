@@ -1,6 +1,15 @@
 import { createClient } from '@/lib/supabase/client'
 import type { Client, ClientConUrgencia, Urgencia } from '@/types'
-import { isToday, isPast, parseISO } from 'date-fns'
+import { format, isToday, isPast, parseISO, subDays } from 'date-fns'
+
+export type ContactoFiltro =
+  | 'todos'
+  | 'nunca'
+  | 'mas_7'
+  | 'mas_15'
+  | 'mas_30'
+  | 'mis_sin_contacto'
+  | 'sin_asignar_sin_contacto'
 
 export function calcularUrgencia(client: Pick<Client, 'fecha_proxima_accion'>): Urgencia {
   if (!client.fecha_proxima_accion) return 'sin_fecha'
@@ -56,6 +65,10 @@ function sanitizeSearchTerm(value: string) {
     .trim()
     .replace(/[,%()]/g, ' ')
     .replace(/\s+/g, ' ')
+}
+
+function fechaLimiteContacto(dias: number) {
+  return format(subDays(new Date(), dias), 'yyyy-MM-dd')
 }
 
 export async function fetchVendedores() {
@@ -128,6 +141,8 @@ export async function fetchClientes(filtros: {
   prioridad?: string
   provincia?: string
   listaTipo?: string
+  contacto?: ContactoFiltro
+  usuarioActualId?: string
   search?: string
   incluirArchivados?: boolean
 }) {
@@ -137,9 +152,10 @@ export async function fetchClientes(filtros: {
     .select(COLS_LISTA)
     .order('razon_social')
 
-  // Por defecto excluir cerrado_no_avanzar salvo filtro explícito de categoría o toggle archivados
-  if (!filtros.incluirArchivados && !filtros.categoria) {
+  // Por defecto excluir clientes cerrados/archivados salvo que el toggle los habilite.
+  if (!filtros.incluirArchivados) {
     query = query.neq('categoria_cliente', 'cerrado_no_avanzar')
+    query = query.neq('estado', 'cerrado')
   }
 
   if (filtros.vendedor === 'sin_asignar') {
@@ -155,6 +171,30 @@ export async function fetchClientes(filtros: {
   if (filtros.prioridad)  query = query.eq('prioridad', filtros.prioridad)
   if (filtros.provincia)  query = query.ilike('provincia', `%${filtros.provincia}%`)
   if (filtros.listaTipo)  query = query.eq('lista_tipo', filtros.listaTipo)
+
+  switch (filtros.contacto) {
+    case 'nunca':
+      query = query.is('ultimo_contacto', null)
+      break
+    case 'mas_7':
+      query = query.lt('ultimo_contacto', fechaLimiteContacto(7))
+      break
+    case 'mas_15':
+      query = query.lt('ultimo_contacto', fechaLimiteContacto(15))
+      break
+    case 'mas_30':
+      query = query.lt('ultimo_contacto', fechaLimiteContacto(30))
+      break
+    case 'mis_sin_contacto':
+      if (filtros.usuarioActualId) {
+        query = query.eq('vendedor_asignado', filtros.usuarioActualId)
+      }
+      query = query.is('ultimo_contacto', null)
+      break
+    case 'sin_asignar_sin_contacto':
+      query = query.is('vendedor_asignado', null).is('ultimo_contacto', null)
+      break
+  }
 
   const search = filtros.search ? sanitizeSearchTerm(filtros.search) : ''
   if (search) {

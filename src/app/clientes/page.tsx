@@ -1,6 +1,6 @@
 'use client'
 import React, { useEffect, useMemo, useState, useRef } from 'react'
-import { fetchClientes, fetchVendedores } from '@/lib/queries/clients'
+import { fetchClientes, fetchVendedores, type ContactoFiltro } from '@/lib/queries/clients'
 import { createClient } from '@/lib/supabase/client'
 import { CATEGORIA_OPTIONS, ESTADO_OPTIONS, LISTA_TIPO_OPTIONS, PRIORIDAD_OPTIONS, TIPO_OPTIONS, listaTipoLabel } from '@/lib/labels'
 import type { Client, Profile } from '@/types'
@@ -18,13 +18,42 @@ function fechaUrgenciaColor(fecha: string | null) {
   return 'text-gray-600'
 }
 
-function diasSinContactoLabel(fecha: string | null) {
-  if (!fecha) return null
+type FiltrosClientes = {
+  categoria: string
+  estado: string
+  prioridad: string
+  tipo: string
+  vendedor: string
+  listaTipo: string
+  contacto: ContactoFiltro
+}
+
+const FILTROS_CONTACTO: { value: ContactoFiltro; label: string }[] = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'nunca', label: 'Nunca contactados' },
+  { value: 'mas_7', label: 'Sin contacto +7 días' },
+  { value: 'mas_15', label: 'Sin contacto +15 días' },
+  { value: 'mas_30', label: 'Sin contacto +30 días' },
+  { value: 'mis_sin_contacto', label: 'Mis asignados sin contacto' },
+  { value: 'sin_asignar_sin_contacto', label: 'No asignados sin contacto' },
+]
+
+const FILTROS_INICIALES: FiltrosClientes = {
+  categoria: '',
+  estado: '',
+  prioridad: '',
+  tipo: '',
+  vendedor: '',
+  listaTipo: '',
+  contacto: 'todos',
+}
+
+function ultimoContactoLabel(fecha: string | null) {
+  if (!fecha) return { texto: 'Nunca', tono: 'pendiente' as const }
   const dias = differenceInDays(new Date(), parseISO(fecha))
-  if (dias === 0) return 'Hoy'
-  if (dias === 1) return 'Hace 1 día'
-  if (dias > 30) return { texto: `Hace ${dias} días`, rojo: true }
-  return `Hace ${dias} días`
+  if (dias === 0) return { texto: 'Hoy', tono: 'normal' as const }
+  if (dias === 1) return { texto: 'Hace 1 día', tono: 'normal' as const }
+  return { texto: `Hace ${dias} días`, tono: dias > 30 ? 'atrasado' as const : 'normal' as const }
 }
 
 const SEL_CLS = 'border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-sage-400'
@@ -57,9 +86,7 @@ export default function ClientesPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [mostrarArchivados, setMostrarArchivados] = useState(false)
-  const [filtros, setFiltros] = useState({
-    categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '',
-  })
+  const [filtros, setFiltros] = useState<FiltrosClientes>(FILTROS_INICIALES)
   const profileRef = useRef<Profile | null>(null)
   const sb = useMemo(() => createClient(), [])
 
@@ -95,16 +122,25 @@ export default function ClientesPage() {
     if (!profile) return
     let cancelled = false
     setLoading(true)
-    fetchClientes({ search: debouncedSearch, ...filtros, listaTipo: filtros.listaTipo || undefined, incluirArchivados: mostrarArchivados })
+    fetchClientes({
+      search: debouncedSearch,
+      ...filtros,
+      contacto: filtros.contacto === 'todos' ? undefined : filtros.contacto,
+      listaTipo: filtros.listaTipo || undefined,
+      usuarioActualId: profile.id,
+      incluirArchivados: mostrarArchivados,
+    })
       .then(data => { if (!cancelled) setClientes(data) })
       .catch((e: any) => { if (!cancelled) setError(e?.message ?? JSON.stringify(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [debouncedSearch, filtros, profile, mostrarArchivados])
 
-  const filtrar = (key: string, val: string) => setFiltros(f => ({ ...f, [key]: val }))
-  const hayFiltros = search !== '' || Object.values(filtros).some(v => v !== '') || mostrarArchivados
-  const limpiar = () => { setSearch(''); setMostrarArchivados(false); setFiltros({ categoria: '', estado: '', prioridad: '', tipo: '', vendedor: '', listaTipo: '' }) }
+  const filtrar = <K extends keyof FiltrosClientes>(key: K, val: FiltrosClientes[K]) => setFiltros(f => ({ ...f, [key]: val }))
+  const hayFiltros = search !== '' || mostrarArchivados || Object.entries(filtros).some(([key, value]) => (
+    key === 'contacto' ? value !== 'todos' : value !== ''
+  ))
+  const limpiar = () => { setSearch(''); setMostrarArchivados(false); setFiltros(FILTROS_INICIALES) }
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -153,6 +189,24 @@ export default function ClientesPage() {
             </svg>
           </button>
         )}
+      </div>
+
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {FILTROS_CONTACTO.map(f => (
+          <button
+            key={f.value}
+            type="button"
+            onClick={() => filtrar('contacto', f.value)}
+            className={clsx(
+              'text-xs px-3 py-1.5 rounded-lg border transition font-medium',
+              filtros.contacto === f.value
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-800'
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Filtros */}
@@ -293,12 +347,15 @@ export default function ClientesPage() {
                   {/* Último contacto */}
                   <td className="px-4 py-3.5">
                     {(() => {
-                      const label = diasSinContactoLabel(c.ultimo_contacto)
-                      if (!label) return <span className="text-xs text-gray-300">—</span>
-                      const esObjeto = typeof label === 'object'
+                      const contacto = ultimoContactoLabel(c.ultimo_contacto)
                       return (
-                        <span className={`text-xs ${esObjeto ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
-                          {esObjeto ? (label as any).texto : label}
+                        <span className={clsx(
+                          'inline-flex text-xs font-medium rounded-full px-2 py-0.5',
+                          contacto.tono === 'pendiente' && 'bg-amber-50 text-amber-700 border border-amber-100',
+                          contacto.tono === 'atrasado' && 'bg-red-50 text-red-700 border border-red-100',
+                          contacto.tono === 'normal' && 'text-gray-500'
+                        )}>
+                          {contacto.texto}
                         </span>
                       )
                     })()}
