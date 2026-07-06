@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import type { Client, ClientConUrgencia, Urgencia } from '@/types'
-import { format, isToday, isPast, parseISO, subDays } from 'date-fns'
+import { format, isToday, isPast, parseISO, subDays, startOfDay, endOfDay } from 'date-fns'
 
 export type ContactoFiltro =
   | 'todos'
@@ -10,6 +10,7 @@ export type ContactoFiltro =
   | 'mas_30'
   | 'mis_sin_contacto'
   | 'sin_asignar_sin_contacto'
+  | 'mis_contactados_hoy'
 
 export function calcularUrgencia(client: Pick<Client, 'fecha_proxima_accion'>): Urgencia {
   if (!client.fecha_proxima_accion) return 'sin_fecha'
@@ -69,6 +70,16 @@ function sanitizeSearchTerm(value: string) {
 
 function fechaLimiteContacto(dias: number) {
   return format(subDays(new Date(), dias), 'yyyy-MM-dd')
+}
+
+// Rango del día actual en horario local, evita comparar por string plano
+// para no arrastrar corrimientos de zona horaria (ultimo_contacto es date).
+function rangoHoyLocal() {
+  const ahora = new Date()
+  return {
+    desde: format(startOfDay(ahora), "yyyy-MM-dd'T'HH:mm:ss"),
+    hasta: format(endOfDay(ahora), "yyyy-MM-dd'T'HH:mm:ss"),
+  }
 }
 
 export async function fetchVendedores() {
@@ -194,6 +205,14 @@ export async function fetchClientes(filtros: {
     case 'sin_asignar_sin_contacto':
       query = query.is('vendedor_asignado', null).is('ultimo_contacto', null)
       break
+    case 'mis_contactados_hoy': {
+      if (filtros.usuarioActualId) {
+        query = query.eq('vendedor_asignado', filtros.usuarioActualId)
+      }
+      const { desde, hasta } = rangoHoyLocal()
+      query = query.gte('ultimo_contacto', desde).lte('ultimo_contacto', hasta)
+      break
+    }
   }
 
   const search = filtros.search ? sanitizeSearchTerm(filtros.search) : ''

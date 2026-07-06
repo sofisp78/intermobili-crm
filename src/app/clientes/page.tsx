@@ -36,6 +36,7 @@ const FILTROS_CONTACTO: { value: ContactoFiltro; label: string }[] = [
   { value: 'mas_30', label: 'Sin contacto +30 días' },
   { value: 'mis_sin_contacto', label: 'Mis asignados sin contacto' },
   { value: 'sin_asignar_sin_contacto', label: 'No asignados sin contacto' },
+  { value: 'mis_contactados_hoy', label: 'Mis contactados hoy' },
 ]
 
 const FILTROS_INICIALES: FiltrosClientes = {
