@@ -1,8 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CategoriaCliente, Client, Estado, Prioridad } from '@/types'
 import { guardarActualizacion } from '@/lib/queries/updates'
 import { fetchResultadoOpciones } from '@/lib/queries/resultado_opciones'
+import EmojiPickerButton from '@/components/ui/EmojiPickerButton'
 import clsx from 'clsx'
 import { addDays } from 'date-fns'
 
@@ -74,6 +75,7 @@ export default function QuickUpdateModal({ client, userId, userName, onClose, on
   const [resultado, setResultado] = useState('')
   const [canal, setCanal] = useState('')
   const [resumen, setResumen] = useState('')
+  const resumenRef = useRef<HTMLTextAreaElement>(null)
   const [proxAccion, setProxAccion] = useState(client.fecha_proxima_accion ?? '')
   const [estado, setEstado] = useState<Estado>(client.estado ?? 'en_curso')
   const [prioridad, setPrioridad] = useState<Prioridad>(client.prioridad ?? 'media')
@@ -155,12 +157,16 @@ export default function QuickUpdateModal({ client, userId, userName, onClose, on
 
           {/* Nota */}
           <div>
-            <label className={labelCls}>
-              Nota{' '}
-              <span className="text-gray-400 font-normal">— ¿qué pasó? (opcional)</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className={clsx(labelCls, 'mb-0')}>
+                Nota{' '}
+                <span className="text-gray-400 font-normal">— ¿qué pasó? (opcional)</span>
+              </label>
+              <EmojiPickerButton value={resumen} onChange={setResumen} textareaRef={resumenRef} />
+            </div>
             <textarea
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sage-400"
+              ref={resumenRef}
+              className="w-full mt-1.5 border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sage-400"
               rows={3}
               placeholder="Ej: Llamé, confirma reunión para el jueves..."
               value={resumen}

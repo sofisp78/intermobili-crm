@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addDays } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { LISTA_TIPO_OPTIONS, PRIORIDAD_OPTIONS } from '@/lib/labels'
+import EmojiPickerButton from '@/components/ui/EmojiPickerButton'
 import type { Profile } from '@/types'
 
 const inputCls = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sage-400'
@@ -21,6 +22,7 @@ export default function NuevoClientePage() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const resumenRef = useRef<HTMLTextAreaElement>(null)
 
   const [form, setForm] = useState({
     razon_social: '',
@@ -288,12 +290,20 @@ export default function NuevoClientePage() {
         </div>
 
         <div>
-          <label className={labelCls}>Nota inicial</label>
+          <div className="flex items-center justify-between">
+            <label className={`${labelCls} mb-0`}>Nota inicial</label>
+            <EmojiPickerButton
+              value={form.resumen}
+              onChange={v => set('resumen', v)}
+              textareaRef={resumenRef}
+            />
+          </div>
           <textarea
+            ref={resumenRef}
             value={form.resumen}
             onChange={e => set('resumen', e.target.value)}
             rows={4}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sage-400"
+            className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sage-400"
             placeholder="Que necesita, que producto le intereso, objeciones, proximo paso..."
           />
         </div>

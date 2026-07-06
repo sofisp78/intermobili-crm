@@ -52,7 +52,7 @@ const FILTROS_INICIALES: FiltrosClientes = {
 function ultimoContactoLabel(fecha: string | null) {
   if (!fecha) return { texto: 'Nunca', tono: 'pendiente' as const }
   const dias = differenceInDays(new Date(), parseISO(fecha))
-  if (dias === 0) return { texto: 'Hoy', tono: 'normal' as const }
+  if (dias === 0) return { texto: 'Hoy', tono: 'hoy' as const }
   if (dias === 1) return { texto: 'Hace 1 día', tono: 'normal' as const }
   return { texto: `Hace ${dias} días`, tono: dias > 30 ? 'atrasado' as const : 'normal' as const }
 }
@@ -354,6 +354,7 @@ export default function ClientesPage() {
                           'inline-flex text-xs font-medium rounded-full px-2 py-0.5',
                           contacto.tono === 'pendiente' && 'bg-amber-50 text-amber-700 border border-amber-100',
                           contacto.tono === 'atrasado' && 'bg-red-50 text-red-700 border border-red-100',
+                          contacto.tono === 'hoy' && 'bg-sage-50 text-sage-700 border border-sage-100',
                           contacto.tono === 'normal' && 'text-gray-500'
                         )}>
                           {contacto.texto}
